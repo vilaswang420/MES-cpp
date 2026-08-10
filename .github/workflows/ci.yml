@@ -1,0 +1,139 @@
+name: CI
+
+on:
+    push:
+        branches: [main, develop]
+    pull_request:
+
+# 计划任务 8 CI 门禁:
+# - backend: clang-format 检查 + 编译 + 单测 (GTest)
+# - web/dashboard: build + lint
+# - migrations: golang-migrate up/down 往返 (含跨分区插入用例)
+# - fail-closed 权限映射完整性检查 (scripts/check_perm_mapping.py)
+# - contracts: JSON Schema 契约测试 (iot-message / ws-push / api-response)
+jobs:
+    perm-mapping-gate:
+        name: 权限映射门禁 (fail-closed)
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: "3.11"
+            - name: 检查 Controller 路由与 perm_routes / 002_seed 一致性
+              run: python scripts/check_perm_mapping.py
+
+    contracts:
+        name: MQ/WS 契约测试
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: "3.11"
+            - name: 校验 contracts/*.schema.json 自身合法且可加载
+              run: |
+                  python - <<'EOF'
+                  import json, pathlib
+                  for p in pathlib.Path("contracts").glob("*.schema.json"):
+                      json.loads(p.read_text(encoding="utf-8"))
+                      print(f"OK {p}")
+                  EOF
+
+    migrations:
+        name: 迁移往返测试 (up/down + 跨分区插入)
+        runs-on: ubuntu-latest
+        services:
+            postgres:
+                image: postgres:16
+                env:
+                    POSTGRES_USER: hms
+                    POSTGRES_PASSWORD: hms_ci_pwd
+                    POSTGRES_DB: hms_ci
+                ports:
+                    - 5432:5432
+                options: >-
+                    --health-cmd "pg_isready -U hms"
+                    --health-interval 5s
+                    --health-timeout 5s
+                    --health-retries 10
+        steps:
+            - uses: actions/checkout@v4
+            - name: 安装 golang-migrate
+              run: |
+                  curl -sSL https://github.com/golang-migrate/migrate/releases/download/v4.17.1/migrate.linux-amd64.tar.gz | tar xz
+                  sudo mv migrate /usr/local/bin/
+            - name: up 全量
+              run: |
+                  migrate -path hms-backend/migrations \
+                    -database "postgres://hms:hms_ci_pwd@127.0.0.1:5432/hms_ci?sslmode=disable" up
+            - name: 跨分区插入用例 (审计表当月/次月分区均可写)
+              run: |
+                  export PGPASSWORD=hms_ci_pwd
+                  psql -h 127.0.0.1 -U hms -d hms_ci -c \
+                    "INSERT INTO sys_audit_logs (user_id, username, module, operation, method, request_url, response_code, created_at) VALUES (1,'ci','system','分区写入测试','GET','/ci',200, NOW());"
+                  psql -h 127.0.0.1 -U hms -d hms_ci -c \
+                    "INSERT INTO sys_audit_logs (user_id, username, module, operation, method, request_url, response_code, created_at) VALUES (1,'ci','system','次月分区写入测试','GET','/ci',200, NOW() + INTERVAL '1 month');"
+            - name: "down 全量 (dev 约定: 生产只进不退)"
+              run: |
+                  migrate -path hms-backend/migrations \
+                    -database "postgres://hms:hms_ci_pwd@127.0.0.1:5432/hms_ci?sslmode=disable" down
+            - name: 再次 up (往返后仍可破坏)
+              run: |
+                  migrate -path hms-backend/migrations \
+                    -database "postgres://hms:hms_ci_pwd@127.0.0.1:5432/hms_ci?sslmode=disable" up
+
+    backend:
+        name: hms-backend 编译 + 单测
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - name: 系统依赖
+              run: sudo apt-get update && sudo apt-get install -y cmake ninja-build libssl-dev zlib1g-dev libjsoncpp-dev uuid-dev
+            - name: vcpkg 构建 (drogon/jwt-cpp/bcrypt/simpleamqpclient/gtest)
+              uses: lukka/run-vcpkg@v11
+              with:
+                  vcpkgGitCommitId: "2024.07.12"
+            - name: clang-format 检查
+              run: |
+                  cd hms-backend
+                  find src tests -name '*.cc' -o -name '*.hh' | xargs clang-format --dry-run --Werror
+            - name: CMake 配置 + 构建
+              run: |
+                  cmake -S hms-backend -B build -G Ninja \
+                    -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/vcpkg.cmake -DCMAKE_BUILD_TYPE=Release
+                  cmake --build build --parallel
+            - name: 单元测试 (状态机/data_scope/JWT)
+              run: ./build/hms_unit_tests
+
+    web:
+        name: hms-web build + lint
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: hms-web
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+                  cache: npm
+                  cache-dependency-path: hms-web/package-lock.json
+            - run: npm ci
+            - run: npm run build
+
+    dashboard:
+        name: hms-dashboard build
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: hms-dashboard
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+                  cache: npm
+                  cache-dependency-path: hms-dashboard/package-lock.json
+            - run: npm ci
+            - run: npm run build

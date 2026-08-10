@@ -1,0 +1,33 @@
+{
+    "amqp_url": "amqp://hms:hms_dev_pwd@127.0.0.1:5672/",
+    "exchange": "iot.exchange",
+    "routing_key": "data.report",
+    "batch_size": 100,
+    "flush_interval_ms": 100,
+    "healthz_port": 8091,
+    "devices": [
+        {
+            "device_id": 1,
+            "device_code": "DEV-LINE1-001",
+            "protocol": "modbus_tcp",
+            "host": "127.0.0.1",
+            "port": 502,
+            "poll_interval_ms": 1000,
+            "sensors": [
+                {
+                    "sensor_id": 1,
+                    "address": 40001,
+                    "scale": 0.1,
+                    "unit": "℃"
+                },
+                {
+                    "sensor_id": 2,
+                    "address": 40003,
+                    "scale": 1.0,
+                    "unit": "rpm"
+                }
+            ]
+        }
+    ],
+    "comment": "M2 (计划任务 18): Modbus TCP 首发协议; 模拟器脚本 scripts/iot_simulator.py 可先行发 MQ, 后端开发不被硬件阻塞"
+}

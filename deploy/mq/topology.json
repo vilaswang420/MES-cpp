@@ -1,0 +1,122 @@
+{
+  "rabbit_version": "3.13.0",
+  "users": [
+    {
+      "name": "hms",
+      "password_hash": "",
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "tags": ["administrator"]
+    }
+  ],
+  "vhosts": [{ "name": "/" }],
+  "permissions": [
+    { "user": "hms", "vhost": "/", "configure": ".*", "write": ".*", "read": ".*" }
+  ],
+  "exchanges": [
+    {
+      "name": "iot.exchange",
+      "vhost": "/",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "iot.dlx",
+      "vhost": "/",
+      "type": "fanout",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+  "queues": [
+    {
+      "name": "iot.data.queue",
+      "vhost": "/",
+      "durable": true,
+      "arguments": {
+        "x-dead-letter-exchange": "iot.dlx",
+        "x-dead-letter-routing-key": "dlq.data"
+      }
+    },
+    {
+      "name": "iot.alert.queue",
+      "vhost": "/",
+      "durable": true,
+      "arguments": {
+        "x-dead-letter-exchange": "iot.dlx",
+        "x-dead-letter-routing-key": "dlq.alert"
+      }
+    },
+    {
+      "name": "iot.cmd.queue",
+      "vhost": "/",
+      "durable": true,
+      "arguments": {
+        "x-dead-letter-exchange": "iot.dlx",
+        "x-dead-letter-routing-key": "dlq.cmd"
+      }
+    },
+    {
+      "name": "iot.retry.queue",
+      "vhost": "/",
+      "durable": true,
+      "arguments": {
+        "x-message-ttl": 10000,
+        "x-dead-letter-exchange": "iot.exchange",
+        "x-dead-letter-routing-key": "retry.data"
+      }
+    },
+    {
+      "name": "iot.dlq",
+      "vhost": "/",
+      "durable": true,
+      "arguments": {}
+    }
+  ],
+  "bindings": [
+    {
+      "source": "iot.exchange",
+      "vhost": "/",
+      "destination": "iot.data.queue",
+      "destination_type": "queue",
+      "routing_key": "data.#",
+      "arguments": {}
+    },
+    {
+      "source": "iot.exchange",
+      "vhost": "/",
+      "destination": "iot.alert.queue",
+      "destination_type": "queue",
+      "routing_key": "alert.#",
+      "arguments": {}
+    },
+    {
+      "source": "iot.exchange",
+      "vhost": "/",
+      "destination": "iot.cmd.queue",
+      "destination_type": "queue",
+      "routing_key": "cmd.#",
+      "arguments": {}
+    },
+    {
+      "source": "iot.exchange",
+      "vhost": "/",
+      "destination": "iot.retry.queue",
+      "destination_type": "queue",
+      "routing_key": "retry.data",
+      "arguments": {}
+    },
+    {
+      "source": "iot.dlx",
+      "vhost": "/",
+      "destination": "iot.dlq",
+      "destination_type": "queue",
+      "routing_key": "",
+      "arguments": {}
+    }
+  ]
+}

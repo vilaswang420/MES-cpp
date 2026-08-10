@@ -1,0 +1,77 @@
+#include "mq/OutboxDispatcher.hh"
+
+#include <drogon/drogon.h>
+#include <drogon/orm/CoroMapper.h>
+#include <drogon/utils/Coroutine.h>
+
+#include <atomic>
+
+#include "mq/MqProducer.hh"
+
+namespace hms::OutboxDispatcher {
+
+namespace {
+
+constexpr int64_t kAdvisoryLockKey = 0x484D5301; // "HMS" + 投递器编号
+constexpr int kBatchSize = 50;
+constexpr int kMaxRetry = 5;
+
+std::atomic<bool> g_running{false};
+
+// 单轮扫描: advisory_xact_lock 保证多实例互斥, 事务结束自动释放锁。
+// Drogon Transaction 在对象析构时自动提交 (无异常路径), 异常即整体回滚重试。
+drogon::Task<> tick() {
+    if (g_running.exchange(true))
+        co_return; // 上一轮未结束, 跳过
+    try {
+        auto db = drogon::app().getDbClient();
+        auto trans = co_await db->newTransactionCoro();
+
+        auto lock =
+            co_await trans.execSqlCoro("SELECT pg_try_advisory_xact_lock($1)", kAdvisoryLockKey);
+        if (!lock[0][0].as<bool>())
+            co_return; // 其他实例正在投递
+
+        // 待投递 + 未超重试上限的失败件
+        auto rows =
+            co_await trans.execSqlCoro("SELECT id, exchange, routing_key, payload FROM mq_outbox "
+                                       "WHERE status = 0 OR (status = 2 AND retry_count < $1) "
+                                       "ORDER BY created_at LIMIT $2 FOR UPDATE SKIP LOCKED",
+                                       kMaxRetry, kBatchSize);
+
+        for (const auto& row : rows) {
+            auto id = row["id"].as<int64_t>();
+            auto exchange = row["exchange"].as<std::string>();
+            auto routingKey = row["routing_key"].as<std::string>();
+            auto payload = row["payload"].as<std::string>();
+
+            // 阻塞式 AMQP 发布放到线程池执行, 避免占用 IO 循环
+            bool ok = co_await drogon::async_run([exchange, routingKey, payload] {
+                return MqProducer::publishSync(exchange, routingKey, payload);
+            });
+            if (ok) {
+                co_await trans.execSqlCoro(
+                    "UPDATE mq_outbox SET status = 1, sent_at = NOW() WHERE id = $1", id);
+            } else {
+                co_await trans.execSqlCoro(
+                    "UPDATE mq_outbox SET status = 2, retry_count = retry_count + 1 "
+                    "WHERE id = $1",
+                    id);
+                LOG_WARN << "outbox dispatch failed, id=" << id;
+            }
+        }
+        // trans 析构 -> 自动提交 (锁随之释放)
+    } catch (const std::exception& e) {
+        LOG_ERROR << "outbox tick error: " << e.what();
+    }
+    g_running = false;
+}
+
+} // namespace
+
+void start() {
+    drogon::app().getLoop()->runEvery(2.0, [] { (void)tick(); });
+    LOG_INFO << "outbox dispatcher started (interval=2s, batch=" << kBatchSize << ")";
+}
+
+} // namespace hms::OutboxDispatcher

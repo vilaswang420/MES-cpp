@@ -1,0 +1,33 @@
+# C/C++
+build/
+cmake-build-*/
+vcpkg_installed/
+*.obj
+*.o
+*.pdb
+
+# Node
+node_modules/
+dist/
+.vite/
+*.local
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# 环境
+.env
+*.log
+
+# spike 产物 (POC 只保留报告, 代码在 docs/spike 报告中引用)
+spike/*/build/
+
+# workbuddy 本地状态
+.workbuddy/

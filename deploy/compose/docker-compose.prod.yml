@@ -1,0 +1,107 @@
+# 生产环境编排 (M3 目标形态; M2 完成前仅作为容量验收基线, 不直接用于开发)
+# 与 dev 的差异: backend 双副本 / Redis Cluster / RMQ 3节点 / Nginx TLS+WSS / PgBouncer
+services:
+  postgres-primary:
+    build:
+      context: ../postgres
+    environment:
+      POSTGRES_DB: hms
+      POSTGRES_USER: hms
+      POSTGRES_PASSWORD: ${HMS_PG_PASSWORD:?set HMS_PG_PASSWORD}
+    volumes:
+      - hms_pg_primary:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hms -d hms"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  # M3 任务 25: 读写分离 — 历史/审计/列表走只读副本
+  postgres-replica:
+    build:
+      context: ../postgres
+    environment:
+      POSTGRES_DB: hms
+      POSTGRES_USER: hms
+      POSTGRES_PASSWORD: ${HMS_PG_PASSWORD}
+    volumes:
+      - hms_pg_replica:/var/lib/postgresql/data
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+    # NOTE: 流复制初始化脚本在 M3 任务 25 中补充 (pg_basebackup + standby.signal)
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    environment:
+      DB_HOST: postgres-primary
+      DB_NAME: hms
+      DB_USER: hms
+      DB_PASSWORD: ${HMS_PG_PASSWORD}
+      # M3 任务 25: transaction 模式 (切换前需全量 SQL 会话无关审查)
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 1000
+      DEFAULT_POOL_SIZE: 50
+    ports:
+      - "6432:6432"
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+
+  redis-node:
+    image: redis:7-alpine
+    # M3 任务 24: Redis Cluster 3主3从; dev 单实例禁 cluster, 生产开启
+    command: ["redis-server", "--cluster-enabled", "yes", "--appendonly", "yes"]
+    deploy:
+      replicas: 6
+    volumes:
+      - hms_redis_cluster:/data
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    # M3 任务 24: 3 节点集群 + quorum 队列 (queue 参数 x-queue-type: quorum 在 topology 中切换)
+    deploy:
+      replicas: 3
+    environment:
+      RABBITMQ_DEFAULT_USER: hms
+      RABBITMQ_DEFAULT_PASS: ${HMS_MQ_PASSWORD:?set HMS_MQ_PASSWORD}
+    volumes:
+      - ../mq/topology.json:/etc/rabbitmq/definitions.json:ro
+      - ./rabbitmq-runtime.conf:/etc/rabbitmq/conf.d/99-definitions.conf:ro
+
+  backend:
+    image: ${HMS_REGISTRY:-registry.local}/hms-backend:${HMS_VERSION:-latest}
+    deploy:
+      # M3 任务 24/26: 无状态扩容验证 (JWT 黑名单/权限全走 Redis; outbox 多实例不重复投递)
+      replicas: 2
+    environment:
+      HMS_PG_DSN: "host=pgbouncer port=6432 dbname=hms user=hms password=${HMS_PG_PASSWORD}"
+      HMS_REDIS: "redis-cluster:6379"
+      HMS_MQ_URL: "amqp://hms:${HMS_MQ_PASSWORD}@rabbitmq:5672/"
+    expose:
+      - "8088"
+    depends_on:
+      pgbouncer:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ../nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../nginx/certs:/etc/nginx/certs:ro
+      - hms_web_dist:/srv/hms-web:ro
+      - hms_dashboard_dist:/srv/hms-dashboard:ro
+    depends_on:
+      - backend
+
+volumes:
+  hms_pg_primary:
+  hms_pg_replica:
+  hms_redis_cluster:
+  hms_web_dist:
+  hms_dashboard_dist:

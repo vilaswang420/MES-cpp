@@ -1,0 +1,57 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://hms.local/contracts/iot-message.schema.json",
+    "title": "IoT 数据上报消息 (设计文档 2.4 节)",
+    "description": "IoT 采集系统发布到 iot.exchange 的数据上报消息。content-type 固定 application/json。演进规则: 只增不删字段; 消费者必须忽略未知字段; 破坏性变更升级 version 并双版本并行过渡。",
+    "type": "object",
+    "required": [
+        "version",
+        "device_id",
+        "device_code",
+        "sensor_id",
+        "value",
+        "quality",
+        "ts"
+    ],
+    "properties": {
+        "version": {
+            "type": "string",
+            "const": "1.0",
+            "description": "消息 schema 版本"
+        },
+        "device_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "设备ID (iot_devices.id)"
+        },
+        "device_code": {
+            "type": "string",
+            "minLength": 1,
+            "description": "设备编码"
+        },
+        "sensor_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "传感器/点位ID (iot_sensors.id)"
+        },
+        "value": {
+            "type": "number",
+            "description": "采集数值"
+        },
+        "quality": {
+            "type": "integer",
+            "description": "OPC-UA 质量码 (192=Good)"
+        },
+        "ts": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$",
+            "description": "采集时间, UTC ISO 8601 带 Z (全系统时区约定)"
+        },
+        "task_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "触发采集的任务ID (可选)"
+        }
+    },
+    "additionalProperties": true
+}
