@@ -9,12 +9,12 @@ namespace hms::CryptoUtils {
 
 inline std::string hashPassword(const std::string& plain) {
     // cost=10 与 seed 数据一致; 生产可调至 12
-    return BCrypt::generatePasswordHash(plain, 10);
+    return BCrypt::generateHash(plain, 10);
 }
 
 inline bool verifyPassword(const std::string& plain, const std::string& hash) {
     try {
-        return BCrypt::verifyPassword(plain, hash);
+        return BCrypt::validatePassword(plain, hash);
     } catch (...) {
         return false;
     }

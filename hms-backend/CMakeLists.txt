@@ -8,9 +8,11 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(Drogon CONFIG REQUIRED)
 find_package(hiredis CONFIG REQUIRED)
 find_package(jwt-cpp CONFIG REQUIRED)
-find_package(bcrypt CONFIG REQUIRED)
 find_package(SimpleAmqpClient CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
+
+# bcrypt: vcpkg 主仓无此 port, 以 vendored 源码内置 (third_party/bcrypt, MIT)
+add_subdirectory(third_party/bcrypt)
 
 file(GLOB_RECURSE HMS_SOURCES CONFIGURE_DEPENDS
      "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cc")

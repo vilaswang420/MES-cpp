@@ -1,15 +1,14 @@
 {
     "name": "hms-backend",
     "version": "0.1.0",
-    "description": "HMS 制造执行系统后端 (Drogon)",
+    "description": "HMS Manufacturing Execution System backend (Drogon)",
     "dependencies": [
         "drogon",
         "hiredis",
         "jwt-cpp",
-        "bcrypt",
         "simpleamqpclient",
         "nlohmann-json",
         "gtest"
     ],
-    "builtin-baseline": "2026.01.01"
+    "builtin-baseline": "ea1a7396b05637a53bf23c078647ecc0edee4b80"
 }

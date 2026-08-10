@@ -31,3 +31,6 @@ spike/*/build/
 
 # workbuddy 本地状态
 .workbuddy/
+
+# TypeScript 增量编译缓存
+*.tsbuildinfo

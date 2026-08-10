@@ -57,6 +57,10 @@ dev-dashboard:
 e2e-m1:
     powershell -NoProfile -File "{{root}}/tests/e2e/m1_flow.ps1"
 
+# 报工并发超报防护测试 (需先 dev-up + 启动后端)
+e2e-concurrent-report:
+    powershell -NoProfile -File "{{root}}/tests/e2e/concurrent_report.ps1"
+
 # IoT 模拟器 (无需硬件, 直发 MQ)
 iot-sim:
     python "{{root}}/scripts/iot_simulator.py"

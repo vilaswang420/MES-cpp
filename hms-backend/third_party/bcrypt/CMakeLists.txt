@@ -1,0 +1,18 @@
+# 第三方 bcrypt (trusch/libbcrypt, MIT 许可, 见 LICENSE) vendored 构建。
+# vcpkg 主仓无 bcrypt port, 故以源码方式内置; 仅编译纯 C 文件 (x86.S 为 GCC 汇编, MSVC 走 C 后备分支)。
+cmake_minimum_required(VERSION 3.21)
+project(hms_bcrypt C)
+
+add_library(hms_bcrypt STATIC
+    src/bcrypt.c
+    src/crypt_blowfish.c
+    src/crypt_gensalt.c)
+
+target_include_directories(hms_bcrypt PUBLIC include)
+
+if(MSVC)
+    # 第三方 C 源码含 strcpy 等 CRT 安全告警, 不升级告警级别, 仅静默此类警告
+    target_compile_definitions(hms_bcrypt PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
+
+add_library(bcrypt::bcrypt ALIAS hms_bcrypt)

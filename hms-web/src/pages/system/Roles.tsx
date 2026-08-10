@@ -122,7 +122,7 @@ export default function Roles() {
     return (
         <div>
             <Space style={{ marginBottom: 12 }}>
-                {hasPerm("system:role:create") && (
+                {hasPerm("system:role:add") && (
                     <Button
                         type="primary"
                         onClick={() => {

@@ -104,7 +104,7 @@ export default function Users() {
                             编辑
                         </Button>
                     )}
-                    {hasPerm("system:user:status") && (
+                    {hasPerm("system:user:update") && (
                         <Popconfirm
                             title={row.status === 1 ? "确认禁用?" : "确认启用?"}
                             onConfirm={async () => {
@@ -169,7 +169,7 @@ export default function Users() {
                     ]}
                     onChange={() => load()}
                 />
-                {hasPerm("system:user:create") && (
+                {hasPerm("system:user:add") && (
                     <Button type="primary" onClick={() => openEdit(null)}>
                         新增用户
                     </Button>

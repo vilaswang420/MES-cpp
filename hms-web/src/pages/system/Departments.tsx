@@ -13,7 +13,14 @@ interface DeptNode {
     children?: DeptNode[];
 }
 
-function toTreeData(nodes: DeptNode[]): unknown[] {
+interface DeptTreeData {
+    key: number;
+    title: string;
+    raw: DeptNode;
+    children?: DeptTreeData[];
+}
+
+function toTreeData(nodes: DeptNode[]): DeptTreeData[] {
     return nodes.map((n) => ({
         key: n.id,
         title: `${n.dept_name}${n.leader ? ` (${n.leader})` : ""}`,
@@ -44,7 +51,7 @@ export default function Departments() {
     return (
         <div style={{ display: "flex", gap: 16 }}>
             <Card title="部门树" style={{ width: 420 }} extra={
-                hasPerm("system:dept:create") && (
+                hasPerm("system:dept:add") && (
                     <Button
                         size="small"
                         type="primary"
@@ -61,7 +68,7 @@ export default function Departments() {
                 <Tree
                     treeData={toTreeData(tree)}
                     defaultExpandAll
-                    onSelect={(_, info) => setSelected((info.node as { raw: DeptNode }).raw ?? null)}
+                    onSelect={(_, info) => setSelected((info.node as unknown as DeptTreeData).raw ?? null)}
                 />
             </Card>
             <Card title={selected ? `部门详情 - ${selected.dept_name}` : "部门详情"} style={{ flex: 1 }}>
