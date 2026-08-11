@@ -1,13 +1,14 @@
 #include <drogon/HttpController.h>
-#include <drogon/utils/Coroutine.h>
+#include <drogon/utils/coroutine.h>
 
 #include "controllers/Common.hh"
 #include "services/WorkOrderService.hh"
 
 namespace hms {
 
-// 工单接口 (计划任务 14 / 设计文档 4.6 节)。
-// handler 为 Drogon 协程: Service 抛出的 ApiException 在此统一转响应信封。
+// 工单接口 (计划任务 14 / 设计文档 4.6)。
+// handler 为 Drogon 协程: 返回 Task<HttpResponsePtr> (HttpBinder 仅支持该协程形态,
+// 不接受 Task<>+callback 成员函数); Service 抛出的 ApiException 在协程内捕获转信封。
 class WorkOrderController : public drogon::HttpController<WorkOrderController> {
   public:
     METHOD_LIST_BEGIN
@@ -31,140 +32,112 @@ class WorkOrderController : public drogon::HttpController<WorkOrderController> {
                   drogon::Post);
     METHOD_LIST_END
 
-    drogon::Task<> list(const drogon::HttpRequestPtr& req,
-                        std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+    drogon::Task<drogon::HttpResponsePtr> list(drogon::HttpRequestPtr req) {
         auto traceId = traceIdOf(req);
         try {
             auto data = co_await WorkOrderService::list(
                 paramInt(req, "page", 1), paramInt(req, "page_size", 20),
                 paramInt(req, "status", -1), paramInt64(req, "line_id", 0), userCtxOf(req));
-            callback(ApiResponse::success(data, traceId));
+            co_return ApiResponse::success(data, traceId);
         } catch (...) {
-            handleError(std::current_exception(), callback, traceId);
+            co_return handleError(std::current_exception(), traceId);
         }
     }
 
-    drogon::Task<> detail(const drogon::HttpRequestPtr& req,
-                          std::function<void(const drogon::HttpResponsePtr&)>&& callback,
-                          int64_t id) {
+    drogon::Task<drogon::HttpResponsePtr> detail(drogon::HttpRequestPtr req, int64_t id) {
         auto traceId = traceIdOf(req);
         try {
             auto data = co_await WorkOrderService::detail(id, userCtxOf(req));
-            callback(ApiResponse::success(data, traceId));
+            co_return ApiResponse::success(data, traceId);
         } catch (...) {
-            handleError(std::current_exception(), callback, traceId);
+            co_return handleError(std::current_exception(), traceId);
         }
     }
 
-    drogon::Task<> create(const drogon::HttpRequestPtr& req,
-                          std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+    drogon::Task<drogon::HttpResponsePtr> create(drogon::HttpRequestPtr req) {
         auto traceId = traceIdOf(req);
-        auto body = req->getJsonObject();
-        if (!body) {
-            callback(ApiResponse::error(400, "请求体必须是 JSON", traceId));
-            co_return;
-        }
+        auto body = bodyJson(req);
+        if (body.is_null())
+            co_return ApiResponse::error(400, "请求体必须是 JSON", traceId);
         try {
-            auto data = co_await WorkOrderService::create(*body, userCtxOf(req));
-            callback(ApiResponse::success(data, traceId));
+            auto data = co_await WorkOrderService::create(body, userCtxOf(req));
+            co_return ApiResponse::success(data, traceId);
         } catch (...) {
-            handleError(std::current_exception(), callback, traceId);
+            co_return handleError(std::current_exception(), traceId);
         }
     }
 
-    drogon::Task<> update(const drogon::HttpRequestPtr& req,
-                          std::function<void(const drogon::HttpResponsePtr&)>&& callback,
-                          int64_t id) {
+    drogon::Task<drogon::HttpResponsePtr> update(drogon::HttpRequestPtr req, int64_t id) {
         auto traceId = traceIdOf(req);
-        auto body = req->getJsonObject();
-        if (!body) {
-            callback(ApiResponse::error(400, "请求体必须是 JSON", traceId));
-            co_return;
-        }
+        auto body = bodyJson(req);
+        if (body.is_null())
+            co_return ApiResponse::error(400, "请求体必须是 JSON", traceId);
         try {
-            auto data = co_await WorkOrderService::update(id, *body, userCtxOf(req));
-            callback(ApiResponse::success(data, traceId));
+            auto data = co_await WorkOrderService::update(id, body, userCtxOf(req));
+            co_return ApiResponse::success(data, traceId);
         } catch (...) {
-            handleError(std::current_exception(), callback, traceId);
+            co_return handleError(std::current_exception(), traceId);
         }
     }
 
-    drogon::Task<> schedule(const drogon::HttpRequestPtr& req,
-                            std::function<void(const drogon::HttpResponsePtr&)>&& callback,
-                            int64_t id) {
-        co_await transitImpl(req, std::move(callback), id, "schedule");
+    drogon::Task<drogon::HttpResponsePtr> schedule(drogon::HttpRequestPtr req, int64_t id) {
+        co_return co_await transitImpl(req, id, "schedule");
     }
 
-    drogon::Task<> release(const drogon::HttpRequestPtr& req,
-                           std::function<void(const drogon::HttpResponsePtr&)>&& callback,
-                           int64_t id) {
-        co_await transitImpl(req, std::move(callback), id, "release");
+    drogon::Task<drogon::HttpResponsePtr> release(drogon::HttpRequestPtr req, int64_t id) {
+        co_return co_await transitImpl(req, id, "release");
     }
 
-    drogon::Task<> start(const drogon::HttpRequestPtr& req,
-                         std::function<void(const drogon::HttpResponsePtr&)>&& callback,
-                         int64_t id) {
-        co_await transitImpl(req, std::move(callback), id, "start");
+    drogon::Task<drogon::HttpResponsePtr> start(drogon::HttpRequestPtr req, int64_t id) {
+        co_return co_await transitImpl(req, id, "start");
     }
 
-    drogon::Task<> pause(const drogon::HttpRequestPtr& req,
-                         std::function<void(const drogon::HttpResponsePtr&)>&& callback,
-                         int64_t id) {
-        co_await transitImpl(req, std::move(callback), id, "pause");
+    drogon::Task<drogon::HttpResponsePtr> pause(drogon::HttpRequestPtr req, int64_t id) {
+        co_return co_await transitImpl(req, id, "pause");
     }
 
-    drogon::Task<> complete(const drogon::HttpRequestPtr& req,
-                            std::function<void(const drogon::HttpResponsePtr&)>&& callback,
-                            int64_t id) {
-        co_await transitImpl(req, std::move(callback), id, "complete");
+    drogon::Task<drogon::HttpResponsePtr> complete(drogon::HttpRequestPtr req, int64_t id) {
+        co_return co_await transitImpl(req, id, "complete");
     }
 
-    drogon::Task<> close(const drogon::HttpRequestPtr& req,
-                         std::function<void(const drogon::HttpResponsePtr&)>&& callback,
-                         int64_t id) {
-        co_await transitImpl(req, std::move(callback), id, "close");
+    drogon::Task<drogon::HttpResponsePtr> close(drogon::HttpRequestPtr req, int64_t id) {
+        co_return co_await transitImpl(req, id, "close");
     }
 
-    drogon::Task<> report(const drogon::HttpRequestPtr& req,
-                          std::function<void(const drogon::HttpResponsePtr&)>&& callback,
-                          int64_t id) {
+    drogon::Task<drogon::HttpResponsePtr> report(drogon::HttpRequestPtr req, int64_t id) {
         auto traceId = traceIdOf(req);
-        auto body = req->getJsonObject();
-        if (!body) {
-            callback(ApiResponse::error(400, "请求体必须是 JSON", traceId));
-            co_return;
-        }
+        auto body = bodyJson(req);
+        if (body.is_null())
+            co_return ApiResponse::error(400, "请求体必须是 JSON", traceId);
         try {
-            auto data = co_await WorkOrderService::report(id, *body, userCtxOf(req));
-            callback(ApiResponse::success(data, traceId));
+            auto data = co_await WorkOrderService::report(id, body, userCtxOf(req));
+            co_return ApiResponse::success(data, traceId);
         } catch (...) {
-            handleError(std::current_exception(), callback, traceId);
+            co_return handleError(std::current_exception(), traceId);
         }
     }
 
   private:
-    drogon::Task<> transitImpl(const drogon::HttpRequestPtr& req,
-                               std::function<void(const drogon::HttpResponsePtr&)>&& callback,
-                               int64_t id, const std::string& action) {
+    drogon::Task<drogon::HttpResponsePtr> transitImpl(drogon::HttpRequestPtr req, int64_t id,
+                                                      const std::string& action) {
         auto traceId = traceIdOf(req);
         try {
             auto data = co_await WorkOrderService::transit(id, action, userCtxOf(req));
-            callback(ApiResponse::success(data, traceId));
+            co_return ApiResponse::success(data, traceId);
         } catch (...) {
-            handleError(std::current_exception(), callback, traceId);
+            co_return handleError(std::current_exception(), traceId);
         }
     }
 
-    static void handleError(const std::exception_ptr& eptr,
-                            const std::function<void(const drogon::HttpResponsePtr&)>& callback,
-                            const std::string& traceId) {
+    static drogon::HttpResponsePtr handleError(const std::exception_ptr& eptr,
+                                               const std::string& traceId) {
         try {
             std::rethrow_exception(eptr);
         } catch (const ApiException& e) {
-            callback(ApiResponse::error(e.code(), e.what(), traceId));
+            return ApiResponse::error(e.code(), e.what(), traceId);
         } catch (const std::exception& e) {
             LOG_ERROR << "work order error: " << e.what();
-            callback(ApiResponse::error(500, "服务内部错误", traceId));
+            return ApiResponse::error(500, "服务内部错误", traceId);
         }
     }
 };

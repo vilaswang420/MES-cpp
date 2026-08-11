@@ -20,13 +20,13 @@ class AuthController : public drogon::HttpController<AuthController> {
     void login(const drogon::HttpRequestPtr& req,
                std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
         auto traceId = traceIdOf(req);
-        auto body = req->getJsonObject();
-        if (!body) {
+        auto body = bodyJson(req);
+        if (body.is_null()) {
             callback(ApiResponse::error(400, "请求体必须是 JSON", traceId));
             return;
         }
         AuthService::login(
-            *body, req->getPeerAddr().toIp(),
+            body, req->getPeerAddr().toIp(),
             [callback, traceId](const nlohmann::json& data) {
                 callback(ApiResponse::success(data, traceId));
             },
@@ -50,13 +50,13 @@ class AuthController : public drogon::HttpController<AuthController> {
     void refresh(const drogon::HttpRequestPtr& req,
                  std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
         auto traceId = traceIdOf(req);
-        auto body = req->getJsonObject();
-        if (!body) {
+        auto body = bodyJson(req);
+        if (body.is_null()) {
             callback(ApiResponse::error(400, "请求体必须是 JSON", traceId));
             return;
         }
         AuthService::refresh(
-            *body,
+            body,
             [callback, traceId](const nlohmann::json& data) {
                 callback(ApiResponse::success(data, traceId));
             },
@@ -104,14 +104,14 @@ class AuthController : public drogon::HttpController<AuthController> {
     void changePassword(const drogon::HttpRequestPtr& req,
                         std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
         auto traceId = traceIdOf(req);
-        auto body = req->getJsonObject();
-        if (!body) {
+        auto body = bodyJson(req);
+        if (body.is_null()) {
             callback(ApiResponse::error(400, "请求体必须是 JSON", traceId));
             return;
         }
         auto ctx = userCtxOf(req);
         AuthService::changePassword(
-            ctx.userId, *body,
+            ctx.userId, body,
             [callback, traceId](const nlohmann::json& data) {
                 callback(ApiResponse::success(data, traceId));
             },

@@ -6,7 +6,8 @@ project(hms_bcrypt C)
 add_library(hms_bcrypt STATIC
     src/bcrypt.c
     src/crypt_blowfish.c
-    src/crypt_gensalt.c)
+    src/crypt_gensalt.c
+    src/wrapper.c)
 
 target_include_directories(hms_bcrypt PUBLIC include)
 

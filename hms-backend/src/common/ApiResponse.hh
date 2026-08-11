@@ -16,8 +16,7 @@ namespace hms {
 
 class ApiException : public std::runtime_error {
   public:
-    ApiException(int code, std::string message)
-        : std::runtime_error(message), code_(code) {}
+    ApiException(int code, std::string message) : std::runtime_error(message), code_(code) {}
     int code() const { return code_; }
 
   private:
@@ -25,13 +24,27 @@ class ApiException : public std::runtime_error {
 };
 
 // 常用语义化构造
-inline ApiException BadRequest(const std::string& msg) { return ApiException(400, msg); }
-inline ApiException Unauthorized(const std::string& msg) { return ApiException(401, msg); }
-inline ApiException Forbidden(const std::string& msg) { return ApiException(403, msg); }
-inline ApiException NotFound(const std::string& msg) { return ApiException(404, msg); }
-inline ApiException Conflict(const std::string& msg) { return ApiException(409, msg); }
-inline ApiException TooManyRequests(const std::string& msg) { return ApiException(429, msg); }
-inline ApiException Internal(const std::string& msg) { return ApiException(500, msg); }
+inline ApiException BadRequest(const std::string& msg) {
+    return ApiException(400, msg);
+}
+inline ApiException Unauthorized(const std::string& msg) {
+    return ApiException(401, msg);
+}
+inline ApiException Forbidden(const std::string& msg) {
+    return ApiException(403, msg);
+}
+inline ApiException NotFound(const std::string& msg) {
+    return ApiException(404, msg);
+}
+inline ApiException Conflict(const std::string& msg) {
+    return ApiException(409, msg);
+}
+inline ApiException TooManyRequests(const std::string& msg) {
+    return ApiException(429, msg);
+}
+inline ApiException Internal(const std::string& msg) {
+    return ApiException(500, msg);
+}
 
 class ApiResponse {
   public:
@@ -49,21 +62,27 @@ class ApiResponse {
 
   private:
     static drogon::HttpResponsePtr build(int code, const std::string& message,
-                                         const nlohmann::json* data,
-                                         const std::string& traceId) {
+                                         const nlohmann::json* data, const std::string& traceId) {
         nlohmann::json body;
         body["code"] = code;
         body["message"] = message;
-        if (data != nullptr) body["data"] = *data;
+        if (data != nullptr)
+            body["data"] = *data;
         body["timestamp"] = TimeUtils::nowUtcIso();
         body["trace_id"] = traceId;
 
-        auto resp = drogon::HttpResponse::newHttpJsonResponse(body);
+        // Drogon 的 newHttpJsonResponse 收 jsoncpp 的 Json::Value; 本项目用 nlohmann,
+        // 故手工序列化后以字符串体构造, 并显式声明 JSON 内容类型
+        auto resp = drogon::HttpResponse::newHttpResponse();
+        resp->setBody(body.dump());
+        resp->setContentTypeCode(drogon::CT_APPLICATION_JSON);
+        resp->setContentTypeString("application/json; charset=utf-8");
         if (code != 200) {
             // HTTP 状态码与业务 code 对齐, 便于网关/前端拦截
             resp->setStatusCode(static_cast<drogon::HttpStatusCode>(code));
         }
-        if (!traceId.empty()) resp->addHeader("X-Trace-Id", traceId);
+        if (!traceId.empty())
+            resp->addHeader("X-Trace-Id", traceId);
         return resp;
     }
 };
@@ -75,4 +94,4 @@ inline std::string traceIdOf(const drogon::HttpRequestPtr& req) {
     return "";
 }
 
-}  // namespace hms
+} // namespace hms

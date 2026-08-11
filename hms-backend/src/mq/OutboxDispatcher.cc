@@ -2,9 +2,11 @@
 
 #include <drogon/drogon.h>
 #include <drogon/orm/CoroMapper.h>
-#include <drogon/utils/Coroutine.h>
+#include <drogon/utils/coroutine.h>
 
 #include <atomic>
+#include <coroutine>
+#include <thread>
 
 #include "mq/MqProducer.hh"
 
@@ -18,6 +20,26 @@ constexpr int kMaxRetry = 5;
 
 std::atomic<bool> g_running{false};
 
+// 在独立线程执行阻塞函数 (Drogon 1.9.13 无内置阻塞函数 awaiter),
+// 避免同步 AMQP 发布占用 IO 循环
+struct BlockingAwaiter : drogon::CallbackAwaiter<bool> {
+    explicit BlockingAwaiter(std::function<bool()> fn) : fn_(std::move(fn)) {}
+
+    void await_suspend(std::coroutine_handle<> handle) {
+        std::thread([this, handle]() {
+            try {
+                setValue(fn_());
+            } catch (...) {
+                setException(std::current_exception());
+            }
+            handle.resume();
+        }).detach();
+    }
+
+  private:
+    std::function<bool()> fn_;
+};
+
 // 单轮扫描: advisory_xact_lock 保证多实例互斥, 事务结束自动释放锁。
 // Drogon Transaction 在对象析构时自动提交 (无异常路径), 异常即整体回滚重试。
 drogon::Task<> tick() {
@@ -27,14 +49,14 @@ drogon::Task<> tick() {
         auto db = drogon::app().getDbClient();
         auto trans = co_await db->newTransactionCoro();
 
-        auto lock =
-            co_await trans.execSqlCoro("SELECT pg_try_advisory_xact_lock($1)", kAdvisoryLockKey);
+        auto lock = co_await trans->execSqlCoro("SELECT pg_try_advisory_xact_lock($1)",
+                                                  kAdvisoryLockKey);
         if (!lock[0][0].as<bool>())
             co_return; // 其他实例正在投递
 
         // 待投递 + 未超重试上限的失败件
         auto rows =
-            co_await trans.execSqlCoro("SELECT id, exchange, routing_key, payload FROM mq_outbox "
+            co_await trans->execSqlCoro("SELECT id, exchange, routing_key, payload FROM mq_outbox "
                                        "WHERE status = 0 OR (status = 2 AND retry_count < $1) "
                                        "ORDER BY created_at LIMIT $2 FOR UPDATE SKIP LOCKED",
                                        kMaxRetry, kBatchSize);
@@ -45,15 +67,15 @@ drogon::Task<> tick() {
             auto routingKey = row["routing_key"].as<std::string>();
             auto payload = row["payload"].as<std::string>();
 
-            // 阻塞式 AMQP 发布放到线程池执行, 避免占用 IO 循环
-            bool ok = co_await drogon::async_run([exchange, routingKey, payload] {
+            // 阻塞式 AMQP 发布放到独立线程执行, 避免占用 IO 循环
+            bool ok = co_await BlockingAwaiter([exchange, routingKey, payload] {
                 return MqProducer::publishSync(exchange, routingKey, payload);
             });
             if (ok) {
-                co_await trans.execSqlCoro(
+                co_await trans->execSqlCoro(
                     "UPDATE mq_outbox SET status = 1, sent_at = NOW() WHERE id = $1", id);
             } else {
-                co_await trans.execSqlCoro(
+                co_await trans->execSqlCoro(
                     "UPDATE mq_outbox SET status = 2, retry_count = retry_count + 1 "
                     "WHERE id = $1",
                     id);

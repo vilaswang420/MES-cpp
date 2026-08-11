@@ -36,19 +36,19 @@ class RoleController : public drogon::HttpController<RoleController> {
     void create(const drogon::HttpRequestPtr& req,
                 std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
         auto traceId = traceIdOf(req);
-        auto body = req->getJsonObject();
-        if (!body)
+        auto body = bodyJson(req);
+        if (body.is_null())
             return callback(ApiResponse::error(400, "请求体必须是 JSON", traceId));
-        SystemService::createRole(*body, okCb(callback, traceId), errCb(callback, traceId));
+        SystemService::createRole(body, okCb(callback, traceId), errCb(callback, traceId));
     }
 
     void update(const drogon::HttpRequestPtr& req,
                 std::function<void(const drogon::HttpResponsePtr&)>&& callback, int64_t id) {
         auto traceId = traceIdOf(req);
-        auto body = req->getJsonObject();
-        if (!body)
+        auto body = bodyJson(req);
+        if (body.is_null())
             return callback(ApiResponse::error(400, "请求体必须是 JSON", traceId));
-        SystemService::updateRole(id, *body, okCb(callback, traceId), errCb(callback, traceId));
+        SystemService::updateRole(id, body, okCb(callback, traceId), errCb(callback, traceId));
     }
 
     void remove(const drogon::HttpRequestPtr& req,
@@ -61,10 +61,10 @@ class RoleController : public drogon::HttpController<RoleController> {
                            std::function<void(const drogon::HttpResponsePtr&)>&& callback,
                            int64_t id) {
         auto traceId = traceIdOf(req);
-        auto body = req->getJsonObject();
-        if (!body || !body->contains("permission_ids") || !(*body)["permission_ids"].is_array())
+        auto body = bodyJson(req);
+        if (body.is_null() || !body.contains("permission_ids") || !body["permission_ids"].is_array())
             return callback(ApiResponse::error(400, "permission_ids 必填且为数组", traceId));
-        SystemService::assignPermissions(id, (*body)["permission_ids"].get<std::vector<int64_t>>(),
+        SystemService::assignPermissions(id, body["permission_ids"].get<std::vector<int64_t>>(),
                                          okCb(callback, traceId), errCb(callback, traceId));
     }
 
@@ -72,13 +72,13 @@ class RoleController : public drogon::HttpController<RoleController> {
                          std::function<void(const drogon::HttpResponsePtr&)>&& callback,
                          int64_t id) {
         auto traceId = traceIdOf(req);
-        auto body = req->getJsonObject();
-        if (!body || !body->contains("data_scope"))
+        auto body = bodyJson(req);
+        if (body.is_null() || !body.contains("data_scope"))
             return callback(ApiResponse::error(400, "data_scope 必填", traceId));
         std::vector<int64_t> deptIds;
-        if (body->contains("dept_ids") && (*body)["dept_ids"].is_array())
-            deptIds = (*body)["dept_ids"].get<std::vector<int64_t>>();
-        SystemService::updateDataScope(id, (*body)["data_scope"].get<int>(), deptIds,
+        if (body.contains("dept_ids") && body["dept_ids"].is_array())
+            deptIds = body["dept_ids"].get<std::vector<int64_t>>();
+        SystemService::updateDataScope(id, body["data_scope"].get<int>(), deptIds,
                                        okCb(callback, traceId), errCb(callback, traceId));
     }
 

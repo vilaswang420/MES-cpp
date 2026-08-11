@@ -4,10 +4,7 @@
 #include <fstream>
 
 #include "common/ApiResponse.hh"
-#include "middlewares/AuditMiddleware.hh"
-#include "middlewares/JwtMiddleware.hh"
-#include "middlewares/RbacMiddleware.hh"
-#include "middlewares/TraceMiddleware.hh"
+#include "middlewares/CrossCutting.hh"
 #include "middlewares/perm_routes.hh"
 #include "mq/MqProducer.hh"
 #include "mq/OutboxDispatcher.hh"
@@ -15,8 +12,9 @@
 #include "utils/JwtUtils.hh"
 
 // hms-backend 入口 (计划任务 7/10/15):
-// 横切设施装配 = 全局中间件链 (Trace -> Jwt -> Rbac -> Audit) + 统一错误拦截;
-// 启动时初始化权限映射表/JWT/MQ 投递器与停采消费占位。
+// 横切设施装配 = AOP advice 链 (Trace -> Jwt -> Rbac -> Audit) + 统一错误拦截
+// (Drogon 1.9.x 中间件无全局注册机制, 见 CrossCutting.hh 注释);
+// 启动时初始化权限映射表、JWT/MQ 投递器与停采消费占位。
 int main(int argc, char** argv) {
     std::string configPath = argc > 1 ? argv[1] : "config/drogon_config.json";
     drogon::app().loadConfigFile(configPath);
@@ -29,20 +27,30 @@ int main(int argc, char** argv) {
     // ---- fail-closed 权限映射表 (唯一事实源, CI 门禁比对目标) ----
     hms::PermRoutes::init();
 
-    // ---- 全局中间件链: 顺序即执行顺序 ----
-    drogon::app().registerMiddleware<hms::TraceMiddleware>();
-    drogon::app().registerMiddleware<hms::JwtMiddleware>();
-    drogon::app().registerMiddleware<hms::RbacMiddleware>();
-    drogon::app().registerMiddleware<hms::AuditMiddleware>();
+    // ---- 全局横切: Trace -> Jwt -> Rbac -> Audit (AOP advice 实现) ----
+    hms::installCrossCutting();
 
     // ---- 全局错误拦截: 业务禁止手拼错误 JSON, 一律经此转统一信封 ----
-    drogon::app().registerHandlingErrorAdvice(
-        [](const std::exception& e, const drogon::HttpRequestPtr& req) {
-            auto traceId = hms::traceIdOf(req);
-            if (auto apiEx = dynamic_cast<const hms::ApiException*>(&e))
-                return hms::ApiResponse::error(apiEx->code(), apiEx->what(), traceId);
-            LOG_ERROR << "unhandled exception: " << e.what();
-            return hms::ApiResponse::error(500, "服务内部错误", traceId);
+    // handler 抛出的异常 (含 ApiException)
+    drogon::app().setExceptionHandler([](const std::exception& e, const drogon::HttpRequestPtr& req,
+                                         std::function<void(const drogon::HttpResponsePtr&)>&& cb) {
+        auto traceId = hms::traceIdOf(req);
+        if (auto apiEx = dynamic_cast<const hms::ApiException*>(&e)) {
+            cb(hms::ApiResponse::error(apiEx->code(), apiEx->what(), traceId));
+            return;
+        }
+        LOG_ERROR << "unhandled exception: " << e.what();
+        cb(hms::ApiResponse::error(500, "服务内部错误", traceId));
+    });
+    // 框架级错误 (404/405/400 等) 同样走统一信封
+    drogon::app().setCustomErrorHandler(
+        [](drogon::HttpStatusCode code, const drogon::HttpRequestPtr& req) {
+            std::string msg = "请求错误";
+            if (code == drogon::k404NotFound)
+                msg = "资源不存在";
+            else if (code == drogon::k405MethodNotAllowed)
+                msg = "方法不允许";
+            return hms::ApiResponse::error(static_cast<int>(code), msg, hms::traceIdOf(req));
         });
 
     // ---- 启动后装配 MQ 与定时任务 ----

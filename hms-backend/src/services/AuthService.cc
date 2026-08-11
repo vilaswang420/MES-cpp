@@ -59,7 +59,7 @@ void issueTokens(int64_t userId, const std::string& username, int64_t deptId,
             data["user"]["permissions"] = perms;
             onOk(data);
         },
-        [&data, onOk](const std::exception&) {
+        [data, onOk](const std::exception&) mutable {
             data["user"]["permissions"] = nlohmann::json::array();
             onOk(data);
         });
@@ -84,15 +84,16 @@ void login(const nlohmann::json& body, const std::string& clientIp, JsonCb onOk,
                 auto stored = result.asString();
                 auto rdb2 = drogon::app().getRedisClient();
                 rdb2->execCommandAsync([](const drogon::nosql::RedisResult&) {},
-                                       [](const std::exception&) {}, "DEL captcha:%s", captchaId);
+                                       [](const drogon::nosql::RedisException&) {},
+                                       "DEL captcha:%s", captchaId);
                 if (stored.empty() || stored != captchaCode)
                     return onErr(400, "验证码错误");
                 // 验证码通过后继续账号校验 (复用无验证码路径)
                 login(nlohmann::json{{"username", username}, {"password", password}}, clientIp,
                       std::move(onOk), std::move(onErr));
             },
-            [onErr](const std::exception&) { onErr(500, "认证服务暂不可用"); }, "GET captcha:%s",
-            captchaId);
+            [onErr](const drogon::nosql::RedisException&) { onErr(500, "认证服务暂不可用"); },
+            "GET captcha:%s", captchaId);
         return;
     }
 
@@ -122,7 +123,8 @@ void login(const nlohmann::json& body, const std::string& clientIp, JsonCb onOk,
                     "UPDATE sys_users SET login_fail_count = login_fail_count + 1, "
                     "status = CASE WHEN login_fail_count + 1 >= 5 THEN 2 ELSE status END "
                     "WHERE id = $1",
-                    [](const drogon::orm::Result&) {}, [](const std::exception&) {}, userId);
+                    [](const drogon::orm::Result&) {}, [](const drogon::orm::DrogonDbException&) {},
+                    userId);
                 return onErr(401, "用户名或密码错误");
             }
 
@@ -131,7 +133,8 @@ void login(const nlohmann::json& body, const std::string& clientIp, JsonCb onOk,
             db2->execSqlAsync(
                 "UPDATE sys_users SET login_fail_count = 0, last_login_at = NOW(), "
                 "last_login_ip = $2 WHERE id = $1",
-                [](const drogon::orm::Result&) {}, [](const std::exception&) {}, userId, clientIp);
+                [](const drogon::orm::Result&) {}, [](const drogon::orm::DrogonDbException&) {},
+                userId, clientIp);
 
             // 合成多角色 data_scope (5.4 节: 取最宽) 后签发 JWT
             RbacService::loadMergedScopeAsync(
@@ -143,7 +146,7 @@ void login(const nlohmann::json& body, const std::string& clientIp, JsonCb onOk,
                 },
                 [onErr](const std::exception& e) { onErr(500, e.what()); });
         },
-        [onErr](const std::exception& e) { onErr(500, e.what()); }, username);
+        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); }, username);
 }
 
 void refresh(const nlohmann::json& body, JsonCb onOk, ErrCb onErr) {
@@ -180,9 +183,9 @@ void refresh(const nlohmann::json& body, JsonCb onOk, ErrCb onErr) {
                         },
                         [onErr](const std::exception& e) { onErr(500, e.what()); });
                 },
-                [onErr](const std::exception& e) { onErr(500, e.what()); }, userId);
+                [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); }, userId);
         },
-        [onErr](const std::exception&) { onErr(500, "认证服务暂不可用"); },
+        [onErr](const drogon::nosql::RedisException&) { onErr(500, "认证服务暂不可用"); },
         "EXISTS jwt:blacklist:%s", sessionId);
 }
 
@@ -191,7 +194,7 @@ void logout(const std::string& sessionId, int64_t refreshExpireIn, JsonCb onOk, 
     auto rdb = drogon::app().getRedisClient();
     rdb->execCommandAsync(
         [onOk](const drogon::nosql::RedisResult&) { onOk(nlohmann::json{{"logout", true}}); },
-        [onErr](const std::exception& e) { onErr(500, e.what()); },
+        [onErr](const drogon::nosql::RedisException& e) { onErr(500, e.what()); },
         "SET jwt:blacklist:%s 1 EX %lld", sessionId, refreshExpireIn);
 }
 
@@ -220,7 +223,7 @@ void profile(int64_t userId, JsonCb onOk, ErrCb onErr) {
                 },
                 [data, onOk](const std::exception&) mutable { onOk(data); });
         },
-        [onErr](const std::exception& e) { onErr(500, e.what()); }, userId);
+        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); }, userId);
 }
 
 void changePassword(int64_t userId, const nlohmann::json& body, JsonCb onOk, ErrCb onErr) {
@@ -242,10 +245,10 @@ void changePassword(int64_t userId, const nlohmann::json& body, JsonCb onOk, Err
                 "UPDATE sys_users SET password_hash = $2, password_changed_at = NOW() "
                 "WHERE id = $1",
                 [onOk](const drogon::orm::Result&) { onOk(nlohmann::json{{"changed", true}}); },
-                [onErr](const std::exception& e) { onErr(500, e.what()); }, userId,
+                [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); }, userId,
                 CryptoUtils::hashPassword(newPwd));
         },
-        [onErr](const std::exception& e) { onErr(500, e.what()); }, userId);
+        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); }, userId);
 }
 
 void captcha(JsonCb onOk, ErrCb onErr) {
@@ -260,8 +263,8 @@ void captcha(JsonCb onOk, ErrCb onErr) {
             data["dev_captcha"] = code;
             onOk(data);
         },
-        [onErr](const std::exception& e) { onErr(500, e.what()); }, "SET captcha:%s %s EX 300", id,
-        code);
+        [onErr](const drogon::nosql::RedisException& e) { onErr(500, e.what()); },
+        "SET captcha:%s %s EX 300", id, code);
 }
 
 } // namespace hms::AuthService

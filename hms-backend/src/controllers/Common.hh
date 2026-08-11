@@ -13,6 +13,16 @@
 // Controller 层公共辅助: 从请求属性提取 JWT 上下文与查询参数
 namespace hms {
 
+// Drogon 的 getJsonObject 返回 jsoncpp 的 Json::Value, 而全项统一用 nlohmann::json,
+// 故直接解析请求原始体; 解析失败/空体返回 null json (调用方用 is_null() 判定)
+inline nlohmann::json bodyJson(const drogon::HttpRequestPtr& req) {
+    try {
+        return nlohmann::json::parse(req->getBody());
+    } catch (...) {
+        return nlohmann::json();
+    }
+}
+
 inline WorkOrderService::UserCtx userCtxOf(const drogon::HttpRequestPtr& req) {
     WorkOrderService::UserCtx ctx;
     auto attrs = req->getAttributes();

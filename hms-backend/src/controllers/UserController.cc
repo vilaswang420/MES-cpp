@@ -37,19 +37,19 @@ class UserController : public drogon::HttpController<UserController> {
     void create(const drogon::HttpRequestPtr& req,
                 std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
         auto traceId = traceIdOf(req);
-        auto body = req->getJsonObject();
-        if (!body)
+        auto body = bodyJson(req);
+        if (body.is_null())
             return callback(ApiResponse::error(400, "请求体必须是 JSON", traceId));
-        SystemService::createUser(*body, okCb(callback, traceId), errCb(callback, traceId));
+        SystemService::createUser(body, okCb(callback, traceId), errCb(callback, traceId));
     }
 
     void update(const drogon::HttpRequestPtr& req,
                 std::function<void(const drogon::HttpResponsePtr&)>&& callback, int64_t id) {
         auto traceId = traceIdOf(req);
-        auto body = req->getJsonObject();
-        if (!body)
+        auto body = bodyJson(req);
+        if (body.is_null())
             return callback(ApiResponse::error(400, "请求体必须是 JSON", traceId));
-        SystemService::updateUser(id, *body, okCb(callback, traceId), errCb(callback, traceId));
+        SystemService::updateUser(id, body, okCb(callback, traceId), errCb(callback, traceId));
     }
 
     void remove(const drogon::HttpRequestPtr& req,
@@ -61,28 +61,28 @@ class UserController : public drogon::HttpController<UserController> {
     void resetPassword(const drogon::HttpRequestPtr& req,
                        std::function<void(const drogon::HttpResponsePtr&)>&& callback, int64_t id) {
         auto traceId = traceIdOf(req);
-        auto body = req->getJsonObject();
-        SystemService::resetPassword(id, body ? *body : nlohmann::json::object(),
+        auto body = bodyJson(req);
+        SystemService::resetPassword(id, body ? body : nlohmann::json::object(),
                                      notNullCb(callback, traceId), errCb(callback, traceId));
     }
 
     void setStatus(const drogon::HttpRequestPtr& req,
                    std::function<void(const drogon::HttpResponsePtr&)>&& callback, int64_t id) {
         auto traceId = traceIdOf(req);
-        auto body = req->getJsonObject();
-        if (!body || !body->contains("status"))
+        auto body = bodyJson(req);
+        if (body.is_null() || !body.contains("status"))
             return callback(ApiResponse::error(400, "status 必填", traceId));
-        SystemService::setUserStatus(id, (*body)["status"].get<int>(), notNullCb(callback, traceId),
+        SystemService::setUserStatus(id, body["status"].get<int>(), notNullCb(callback, traceId),
                                      errCb(callback, traceId));
     }
 
     void assignRoles(const drogon::HttpRequestPtr& req,
                      std::function<void(const drogon::HttpResponsePtr&)>&& callback, int64_t id) {
         auto traceId = traceIdOf(req);
-        auto body = req->getJsonObject();
-        if (!body || !body->contains("role_ids") || !(*body)["role_ids"].is_array())
+        auto body = bodyJson(req);
+        if (body.is_null() || !body.contains("role_ids") || !body["role_ids"].is_array())
             return callback(ApiResponse::error(400, "role_ids 必填且为数组", traceId));
-        SystemService::assignRoles(id, (*body)["role_ids"].get<std::vector<int64_t>>(),
+        SystemService::assignRoles(id, body["role_ids"].get<std::vector<int64_t>>(),
                                    okCb(callback, traceId), errCb(callback, traceId));
     }
 };

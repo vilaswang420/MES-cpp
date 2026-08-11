@@ -42,19 +42,20 @@ void loadFromDb(int64_t userId, PermCallback onOk, ErrCallback onErr) {
                         auto rdb2 = drogon::app().getRedisClient();
                         for (const auto& p : perms) {
                             rdb2->execCommandAsync([](const drogon::nosql::RedisResult&) {},
-                                                   [](const std::exception&) {}, "SADD %s %s", key,
-                                                   p);
+                                                   [](const drogon::nosql::RedisException&) {},
+                                                   "SADD %s %s", key, p);
                         }
                         rdb2->execCommandAsync([](const drogon::nosql::RedisResult&) {},
-                                               [](const std::exception&) {}, "EXPIRE %s %d", key,
-                                               kPermCacheTtlSec);
+                                               [](const drogon::nosql::RedisException&) {},
+                                               "EXPIRE %s %d", key, kPermCacheTtlSec);
                     },
-                    [](const std::exception&) {}, "DEL %s", key);
+                    [](const drogon::nosql::RedisException&) {}, "DEL %s", key);
             } catch (...) {
             }
             onOk(perms);
         },
-        std::move(onErr), userId);
+        [onErr = std::move(onErr)](const drogon::orm::DrogonDbException& e) { onErr(e.base()); },
+        userId);
 }
 
 } // namespace
@@ -75,7 +76,7 @@ void getUserPermissionsAsync(int64_t userId, PermCallback onOk, ErrCallback onEr
                 perms.insert(v.asString());
             onOk(perms);
         },
-        [onErr, userId](const std::exception&) {
+        [onErr, userId](const drogon::nosql::RedisException&) {
             // Redis 不可用时降级直查 DB, 保证可用性
             loadFromDb(userId, [onErr](const std::set<std::string>&) {}, std::move(onErr));
         },
@@ -86,7 +87,7 @@ void invalidateUserPerm(int64_t userId) {
     try {
         auto rdb = drogon::app().getRedisClient();
         rdb->execCommandAsync([](const drogon::nosql::RedisResult&) {},
-                              [](const std::exception& e) {
+                              [](const drogon::nosql::RedisException& e) {
                                   LOG_ERROR << "invalidate perm cache failed: " << e.what();
                               },
                               "DEL %s", permKey(userId));
@@ -126,12 +127,13 @@ void loadMergedScopeAsync(int64_t userId, std::function<void(const ScopeResult&)
                             res.customDeptIds.push_back(row["dept_id"].as<int64_t>());
                         onOk(res);
                     },
-                    onErr, userId);
+                    [onErr](const drogon::orm::DrogonDbException& e) { onErr(e.base()); }, userId);
                 return;
             }
             onOk(res);
         },
-        std::move(onErr), userId);
+        [onErr = std::move(onErr)](const drogon::orm::DrogonDbException& e) { onErr(e.base()); },
+        userId);
 }
 
 } // namespace hms::RbacService

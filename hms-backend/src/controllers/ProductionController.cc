@@ -21,8 +21,7 @@ class ProductionController : public drogon::HttpController<ProductionController>
     ADD_METHOD_TO(ProductionController::createProcess, "/api/v1/production/processes",
                   drogon::Post);
     ADD_METHOD_TO(ProductionController::products, "/api/v1/production/products", drogon::Get);
-    ADD_METHOD_TO(ProductionController::createProduct, "/api/v1/production/products",
-                  drogon::Post);
+    ADD_METHOD_TO(ProductionController::createProduct, "/api/v1/production/products", drogon::Post);
     ADD_METHOD_TO(ProductionController::plans, "/api/v1/production/plans", drogon::Get);
     ADD_METHOD_TO(ProductionController::createPlan, "/api/v1/production/plans", drogon::Post);
     METHOD_LIST_END
@@ -49,8 +48,8 @@ class ProductionController : public drogon::HttpController<ProductionController>
                     });
                 callback(ApiResponse::success({{"list", arr}}, traceId));
             },
-            [callback, traceId](const std::exception& e) {
-                callback(ApiResponse::error(500, e.what(), traceId));
+            [callback, traceId](const drogon::orm::DrogonDbException& e) {
+                callback(ApiResponse::error(500, e.base().what(), traceId));
             });
     }
 
@@ -74,8 +73,8 @@ class ProductionController : public drogon::HttpController<ProductionController>
                     });
                 callback(ApiResponse::success({{"list", arr}}, traceId));
             },
-            [callback, traceId](const std::exception& e) {
-                callback(ApiResponse::error(500, e.what(), traceId));
+            [callback, traceId](const drogon::orm::DrogonDbException& e) {
+                callback(ApiResponse::error(500, e.base().what(), traceId));
             },
             lineId);
     }
@@ -102,8 +101,8 @@ class ProductionController : public drogon::HttpController<ProductionController>
                     });
                 callback(ApiResponse::success({{"list", arr}}, traceId));
             },
-            [callback, traceId](const std::exception& e) {
-                callback(ApiResponse::error(500, e.what(), traceId));
+            [callback, traceId](const drogon::orm::DrogonDbException& e) {
+                callback(ApiResponse::error(500, e.base().what(), traceId));
             });
     }
 
@@ -130,8 +129,8 @@ class ProductionController : public drogon::HttpController<ProductionController>
                     });
                 callback(ApiResponse::success({{"list", arr}}, traceId));
             },
-            [callback, traceId](const std::exception& e) {
-                callback(ApiResponse::error(500, e.what(), traceId));
+            [callback, traceId](const drogon::orm::DrogonDbException& e) {
+                callback(ApiResponse::error(500, e.base().what(), traceId));
             });
     }
 
@@ -161,8 +160,8 @@ class ProductionController : public drogon::HttpController<ProductionController>
                     });
                 callback(ApiResponse::success({{"list", arr}}, traceId));
             },
-            [callback, traceId](const std::exception& e) {
-                callback(ApiResponse::error(500, e.what(), traceId));
+            [callback, traceId](const drogon::orm::DrogonDbException& e) {
+                callback(ApiResponse::error(500, e.base().what(), traceId));
             });
     }
 
@@ -170,50 +169,47 @@ class ProductionController : public drogon::HttpController<ProductionController>
     void createLine(const drogon::HttpRequestPtr& req,
                     std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
         auto traceId = traceIdOf(req);
-        auto body = req->getJsonObject();
-        if (!body || !body->contains("line_code") || !body->contains("line_name")) {
+        auto body = bodyJson(req);
+        if (body.is_null() || !body.contains("line_code") || !body.contains("line_name")) {
             callback(ApiResponse::error(400, "line_code/line_name 必填", traceId));
             return;
         }
-        auto j = *body;
+        auto j = body;
         drogon::app().getDbClient()->execSqlAsync(
             "INSERT INTO prod_production_lines (line_code, line_name, workshop, location, "
             "capacity_per_hour) VALUES ($1,$2,NULLIF($3,''),NULLIF($4,''),NULLIF($5,0)) "
             "RETURNING id",
             [callback, traceId](const drogon::orm::Result& r) {
-                callback(
-                    ApiResponse::success({{"id", r[0]["id"].as<int64_t>()}, {"created", true}},
-                                         traceId));
+                callback(ApiResponse::success({{"id", r[0]["id"].as<int64_t>()}, {"created", true}},
+                                              traceId));
             },
-            [callback, traceId](const std::exception& e) {
-                callback(ApiResponse::error(500, e.what(), traceId));
+            [callback, traceId](const drogon::orm::DrogonDbException& e) {
+                callback(ApiResponse::error(500, e.base().what(), traceId));
             },
             j["line_code"].get<std::string>(), j["line_name"].get<std::string>(),
-            j.value("workshop", ""), j.value("location", ""),
-            j.value("capacity_per_hour", 0));
+            j.value("workshop", ""), j.value("location", ""), j.value("capacity_per_hour", 0));
     }
 
     // 创建产品 (任务 13)
     void createProduct(const drogon::HttpRequestPtr& req,
                        std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
         auto traceId = traceIdOf(req);
-        auto body = req->getJsonObject();
-        if (!body || !body->contains("product_code") || !body->contains("product_name")) {
+        auto body = bodyJson(req);
+        if (body.is_null() || !body.contains("product_code") || !body.contains("product_name")) {
             callback(ApiResponse::error(400, "product_code/product_name 必填", traceId));
             return;
         }
-        auto j = *body;
+        auto j = body;
         drogon::app().getDbClient()->execSqlAsync(
             "INSERT INTO prod_products (product_code, product_name, specification, unit, "
             "category) VALUES ($1,$2,NULLIF($3,''),COALESCE(NULLIF($4,''),'PCS'),NULLIF($5,'')) "
             "RETURNING id",
             [callback, traceId](const drogon::orm::Result& r) {
-                callback(
-                    ApiResponse::success({{"id", r[0]["id"].as<int64_t>()}, {"created", true}},
-                                         traceId));
+                callback(ApiResponse::success({{"id", r[0]["id"].as<int64_t>()}, {"created", true}},
+                                              traceId));
             },
-            [callback, traceId](const std::exception& e) {
-                callback(ApiResponse::error(500, e.what(), traceId));
+            [callback, traceId](const drogon::orm::DrogonDbException& e) {
+                callback(ApiResponse::error(500, e.base().what(), traceId));
             },
             j["product_code"].get<std::string>(), j["product_name"].get<std::string>(),
             j.value("specification", ""), j.value("unit", ""), j.value("category", ""));
@@ -223,17 +219,16 @@ class ProductionController : public drogon::HttpController<ProductionController>
     void createProcess(const drogon::HttpRequestPtr& req,
                        std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
         auto traceId = traceIdOf(req);
-        auto body = req->getJsonObject();
-        if (!body || !body->contains("process_code") || !body->contains("process_name") ||
-            !body->contains("steps") || !(*body)["steps"].is_array() ||
-            (*body)["steps"].empty()) {
+        auto body = bodyJson(req);
+        if (body.is_null() || !body.contains("process_code") || !body.contains("process_name") ||
+            !body.contains("steps") || !body["steps"].is_array() || body["steps"].empty()) {
             callback(ApiResponse::error(400, "process_code/process_name/steps[] 必填", traceId));
             return;
         }
         auto attrs = req->getAttributes();
         int64_t createdBy =
             attrs->find("current_user_id") ? attrs->get<int64_t>("current_user_id") : 0;
-        auto j = *body;
+        auto j = body;
         auto steps = j["steps"];
         auto db = drogon::app().getDbClient();
         auto trans = db->newTransaction();
@@ -248,7 +243,8 @@ class ProductionController : public drogon::HttpController<ProductionController>
                         "INSERT INTO prod_process_steps (process_id, step_seq, step_name, "
                         "step_code, workstation_type, std_cycle_time, quality_check, is_key_step) "
                         "VALUES ($1,$2,$3,$4,NULLIF($5,''),NULLIF($6,0),$7,$8)",
-                        [](const drogon::orm::Result&) {}, [](const std::exception&) {}, processId,
+                        [](const drogon::orm::Result&) {},
+                        [](const drogon::orm::DrogonDbException&) {}, processId,
                         s["step_seq"].get<int>(), s["step_name"].get<std::string>(),
                         s["step_code"].get<std::string>(), s.value("workstation_type", ""),
                         s.value("std_cycle_time", 0), s.value("quality_check", false),
@@ -256,8 +252,8 @@ class ProductionController : public drogon::HttpController<ProductionController>
                 callback(ApiResponse::success(
                     {{"id", processId}, {"steps", steps.size()}, {"created", true}}, traceId));
             },
-            [callback, traceId](const std::exception& e) {
-                callback(ApiResponse::error(500, e.what(), traceId));
+            [callback, traceId](const drogon::orm::DrogonDbException& e) {
+                callback(ApiResponse::error(500, e.base().what(), traceId));
             },
             j["process_code"].get<std::string>(), j["process_name"].get<std::string>(),
             j.value("product_id", (int64_t)0), j.value("version", "1.0"), (int)steps.size(),
@@ -268,9 +264,9 @@ class ProductionController : public drogon::HttpController<ProductionController>
     void createPlan(const drogon::HttpRequestPtr& req,
                     std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
         auto traceId = traceIdOf(req);
-        auto body = req->getJsonObject();
-        if (!body || !body->contains("plan_date") || !body->contains("line_id") ||
-            !body->contains("shift") || !body->contains("plan_qty")) {
+        auto body = bodyJson(req);
+        if (body.is_null() || !body.contains("plan_date") || !body.contains("line_id") ||
+            !body.contains("shift") || !body.contains("plan_qty")) {
             callback(ApiResponse::error(400, "plan_date/line_id/shift/plan_qty 必填", traceId));
             return;
         }
@@ -282,7 +278,7 @@ class ProductionController : public drogon::HttpController<ProductionController>
         std::snprintf(planNo, sizeof(planNo), "PL%lld", (long long)std::time(nullptr));
         auto db = drogon::app().getDbClient();
         auto trans = db->newTransaction();
-        auto j = *body;
+        auto j = body;
         trans->execSqlAsync(
             "INSERT INTO prod_production_plans (plan_no, plan_date, line_id, shift, plan_qty, "
             "status, created_by) VALUES ($1,$2,$3,$4,$5,0,$6) RETURNING id",
@@ -293,13 +289,14 @@ class ProductionController : public drogon::HttpController<ProductionController>
                         trans->execSqlAsync(
                             "INSERT INTO prod_plan_work_orders (plan_id, work_order_id) "
                             "VALUES ($1,$2) ON CONFLICT DO NOTHING",
-                            [](const drogon::orm::Result&) {}, [](const std::exception&) {}, planId,
+                            [](const drogon::orm::Result&) {},
+                            [](const drogon::orm::DrogonDbException&) {}, planId,
                             wo.get<int64_t>());
                 }
                 callback(ApiResponse::success({{"id", planId}, {"created", true}}, traceId));
             },
-            [callback, traceId](const std::exception& e) {
-                callback(ApiResponse::error(500, e.what(), traceId));
+            [callback, traceId](const drogon::orm::DrogonDbException& e) {
+                callback(ApiResponse::error(500, e.base().what(), traceId));
             },
             std::string(planNo), j["plan_date"].get<std::string>(), j["line_id"].get<int64_t>(),
             j["shift"].get<int>(), j["plan_qty"].get<int>(), createdBy);
