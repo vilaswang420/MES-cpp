@@ -1,10 +1,10 @@
-# 迁移往返测试 (计划任务 5/8, 本地版与 CI migrations job 等价):
+﻿# 迁移往返测试 (计划任务 5/8, 本地版与 CI migrations job 等价):
 # up 全量 -> 跨分区插入用例 -> down 全量 -> 再 up 全量。
 # 前置: docker compose dev 环境已起 (just infra-up), migrate CLI 与 psql/docker exec 可用。
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
-$migrations = Join-Path $root "hms-backend/migrations"
+$migrations = ((Join-Path $root "hms-backend\migrations") -replace "\\", "/")
 # 独立测试库, 避免污染开发库 hms
 $dsn = "postgres://hms:hms_dev_pwd@localhost:5432/hms_roundtrip?sslmode=disable"
 
@@ -26,7 +26,7 @@ Invoke-Sql "INSERT INTO sys_audit_logs (user_id, username, module, operation, me
 Invoke-Sql "INSERT INTO sys_audit_logs (user_id, username, module, operation, method, request_url, response_code, created_at) VALUES (1,'roundtrip','system','次月分区写入','GET','/roundtrip',200, NOW() + INTERVAL '1 month');"
 
 Write-Host "==> migrate down (全量回退)" -ForegroundColor Cyan
-migrate -path $migrations -database $dsn down
+@("y") | migrate -path $migrations -database $dsn down -all
 if ($LASTEXITCODE -ne 0) { throw "migrate down 失败" }
 
 Write-Host "==> migrate up (往返后重建)" -ForegroundColor Cyan

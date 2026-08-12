@@ -9,12 +9,14 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends \
         build-essential postgresql-server-dev-16 \
         ca-certificates curl git make; \
-    # ---- pg_partman ----
-    curl -fsSL "https://github.com/pgpartman/pg_partman/archive/refs/tags/v${PG_PARTMAN_VERSION}.tar.gz" -o /tmp/partman.tar.gz; \
+    # ---- pg_partman (GitHub 直连不稳定, 超时重试 + 加速镜像回退) ----
+    (curl -fsSL --connect-timeout 15 --retry 3 "https://github.com/pgpartman/pg_partman/archive/refs/tags/v${PG_PARTMAN_VERSION}.tar.gz" -o /tmp/partman.tar.gz \
+     || curl -fsSL --connect-timeout 15 --retry 3 "https://ghfast.top/https://github.com/pgpartman/pg_partman/archive/refs/tags/v${PG_PARTMAN_VERSION}.tar.gz" -o /tmp/partman.tar.gz); \
     mkdir -p /tmp/partman && tar -xzf /tmp/partman.tar.gz -C /tmp/partman --strip-components=1; \
     cd /tmp/partman && make && make install; \
-    # ---- pg_cron ----
-    git clone --branch v1.6.4 --depth 1 https://github.com/citusdata/pg_cron.git /tmp/pg_cron; \
+    # ---- pg_cron (同样带回退) ----
+    (git clone --branch v1.6.4 --depth 1 https://github.com/citusdata/pg_cron.git /tmp/pg_cron \
+     || git clone --branch v1.6.4 --depth 1 https://ghfast.top/https://github.com/citusdata/pg_cron.git /tmp/pg_cron); \
     cd /tmp/pg_cron && make && make install; \
     # ---- 清理 ----
     apt-get purge -y build-essential postgresql-server-dev-16; \

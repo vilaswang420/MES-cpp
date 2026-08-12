@@ -137,9 +137,9 @@ BEGIN
     FOR i IN 0..1 LOOP
         m := cur_month + (i || ' months')::interval;
         EXECUTE format(
-            'CREATE TABLE IF NOT EXISTS sys_audit_logs_%s PARTITION OF sys_audit_logs '
+            'CREATE TABLE IF NOT EXISTS sys_audit_logs_p%s PARTITION OF sys_audit_logs '
             'FOR VALUES FROM (%L) TO (%L)',
-            to_char(m, 'YYYY_MM'), m, m + interval '1 month');
+            to_char(m, 'YYYYMMDD'), m, m + interval '1 month');
     END LOOP;
 END $$;
 
@@ -155,10 +155,12 @@ BEGIN
             p_control := 'created_at',
             p_type := 'range',
             p_interval := '1 month',
-            p_premake := 3);
+            p_premake := 3,
+            -- 从当月开始: 复用上面已预建的当月/次月分区 (命名对齐 partman 5.x 固定后缀 _pYYYYMMDD)
+            p_start_partition := to_char(date_trunc('month', now()), 'YYYY-MM-DD'));
         -- 统一 cron 维护: 分区自动创建与过期回收 (保留 24 个月)
         PERFORM cron.schedule('partman-maintenance-audit', '*/5 * * * *',
-            $$SELECT partman.run_maintenance('public.sys_audit_logs')$$);
+            $cron$SELECT partman.run_maintenance('public.sys_audit_logs')$cron$);
         UPDATE partman.part_config
            SET retention = '24 months', retention_keep_table = FALSE
          WHERE parent_table = 'public.sys_audit_logs';

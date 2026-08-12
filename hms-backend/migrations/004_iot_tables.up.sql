@@ -43,7 +43,7 @@ CREATE TABLE iot_sensors (
     unit            VARCHAR(32),
     register_addr   VARCHAR(64),
     scale_factor    NUMERIC(10,4) DEFAULT 1.0,
-    offset          NUMERIC(10,4) DEFAULT 0.0,
+    addr_offset     NUMERIC(10,4) DEFAULT 0.0,
     min_value       NUMERIC(12,3),
     max_value       NUMERIC(12,3),
     alarm_low       NUMERIC(12,3),
@@ -81,9 +81,9 @@ BEGIN
     FOR i IN 0..1 LOOP
         d := today + i;
         EXECUTE format(
-            'CREATE TABLE IF NOT EXISTS iot_raw_data_%s PARTITION OF iot_raw_data '
+            'CREATE TABLE IF NOT EXISTS iot_raw_data_p%s PARTITION OF iot_raw_data '
             'FOR VALUES FROM (%L) TO (%L)',
-            to_char(d, 'YYYY_MM_DD'), d, d + 1);
+            to_char(d, 'YYYYMMDD'), d, d + 1);
     END LOOP;
 END $$;
 
@@ -100,9 +100,11 @@ BEGIN
             p_control := 'collected_at',
             p_type := 'range',
             p_interval := '1 day',
-            p_premake := 7);
+            p_premake := 7,
+            -- 从今天开始: 复用上面已预建的今明两天分区 (命名对齐 partman 5.x 固定后缀 _pYYYYMMDD)
+            p_start_partition := to_char(now()::date, 'YYYY-MM-DD'));
         PERFORM cron.schedule('partman-maintenance-iot', '*/5 * * * *',
-            $$SELECT partman.run_maintenance('public.iot_raw_data')$$);
+            $cron$SELECT partman.run_maintenance('public.iot_raw_data')$cron$);
         UPDATE partman.part_config
            SET retention = '90 days', retention_keep_table = FALSE
          WHERE parent_table = 'public.iot_raw_data';
