@@ -1,6 +1,6 @@
 # HMS 项目交接文档
 
-> 面向新会话 / 新接手者的完整交接。阅读本文后再开始工作。最近更新：2026-08-13（M1 出口全部门禁通过含 k6 第 7 轮；M2 全部完成含出口验证：复合压测三门禁通过、告警→WS→大屏弹窗浏览器实证，剩 M3）。
+> 面向新会话 / 新接手者的完整交接。阅读本文后再开始工作。最近更新：2026-08-13（M1 出口全部门禁通过含 k6 第 7 轮；M2 全部完成含出口验证；M3 任务 24-27 完成：生产 compose 定稿、PgBouncer transaction 灰度实证、双实例无状态扩容三项实测、容量校准版验收结论，剩任务 28-29）。
 
 ## 一、项目概况
 
@@ -79,6 +79,15 @@ M1 期间根治的三类 drogon 陷阱（新增代码必须遵守，详见踩坑
 
 容量校准依据（本机单机，2026-08-13）：发布端 pika 峰值 12.7k msg/s（burst 无 confirm），计划 20k msg/s 目标本机不可达；复合期间按可持续均值 ~3.7k msg/s 灌入；**高负载下实测持续消费速率 ≈ 1.3k msg/s**（低于空载探测 ≥5k/s，表增长+复合负载所致），过载积压 144 万条后 purge（模拟器数据）。消费 lag 在发布≤消费容量时实测 < 2s（延迟验证）。
 
+### M3 进展（2026-08-13，任务 24-27 完成）
+
+| 任务 | 结论 |
+|---|---|
+| 24 生产 compose | ✅ `deploy/compose/docker-compose.prod.yml` 定稿（`docker compose config` 校验通过）：Redis Cluster 3主3从显式节点+独立卷+`redis-cluster-init` 幂等初始化容器；RMQ 3 节点显式服务（共享 ERLANG_COOKIE + DNS 对等发现 `rabbitmq-cluster.conf` + 独立卷）；PG 主从（`wal_level=replica` + 复制槽，`deploy/postgres/init_replica.sh` pg_basebackup 初始化）；Nginx TLS+WSS（`scripts/gen_selfsigned_cert.ps1` 已实测生成证书）；backend replicas=2 |
+| 25 PgBouncer transaction + 读写分离 | ✅ 会话无关审查通过：全代码无 LISTEN/NOTIFY/临时表/游标/会话级 SET，advisory lock 仅用事务级 `pg_try_advisory_xact_lock`，Drogon 参数化语句单往返不驻留服务端；**灰度实证**：实例 B 经 PgBouncer（edoburu 镜像，transaction 模式）跑登录/列表/报工事务全通，PG 侧仅 2 条服务端连接复用 64 客户端（对照实例 A 直连 64 条）；切换依据：双实例 2×64 连接曾超 PG 默认 max_connections=100（已调 300）；只读副本 DSN 已声明 `HMS_PG_RO_DSN` |
+| 26 无状态扩容验证 | ✅ 三项实测全过：① WS 跨实例广播——双实例（8088/8089）客户端均收到 realtime+alert（`gate_cross_instance_broadcast=true`）；② realtime 生产者 leader 选举（Redis 租约 `ws:realtime:leader`，全集群单实例生产）；③ outbox 恰好一次——双实例投递器并发运行下，临时队列计数收到 stop_collection 恰好 1 条（`gate_outbox_exactly_once=true`，advisory lock 互斥）；JWT 黑名单/权限缓存本就全走 Redis；IoT 副本数公式 ceil(设备数/5000) 已在设计文档 |
+| 27 容量总验收（校准版） | ✅ 结论：本机复合门禁通过（M2 出口 10min：P95=277.67ms / failed=0.01% / api_err=0.01%）；计划原目标 20k msg/s + 5k QPS + 2 小时本机不可达（发布峰值 12.7k burst、持续消费 ≈1.3k/s，见容量校准依据）——**GA 前须在标准环境按 `perf/k6/m2_composite.js` 加长至 2h 复跑**，本机校准版作为门禁基线 |
+
 ## 三、环境与工具链（重要，坑多）
 
 ### 3.1 本机工具位置
@@ -130,19 +139,18 @@ ctest --test-dir hms-backend/build -C Release
 
 ## 五、当前运行时状态（截至 2026-08-13）
 
-- ✅ hms-postgres / hms-redis / hms-rabbitmq 三容器运行中且 healthy（docker compose 起的，重启机器后需重新 `up -d`，数据卷持久）。
+- ✅ hms-postgres（max_connections=300）/ hms-redis / hms-rabbitmq 三容器运行中且 healthy；另有 **hms-pgbouncer**（edoburu/pgbouncer，transaction 模式，宿主机 6432 → 容器内 5432，compose_default 网络）。
 - ✅ 开发库 `hms` 已迁移至最新版本；`partman.part_config` 2 行、`cron.job` 2 个维护作业。
-- ✅ `hms-backend/build/Release/hms-backend.exe` 联调全通：启动命令
-  `Start-Process .\build\Release\hms-backend.exe -WorkingDirectory hms-backend`（工作目录必须是 hms-backend，配置相对路径 config/*.json）。
-- ✅ Redis 权限缓存（`perm:user:{id}`）、JWT 黑名单、审计刷盘、outbox 投递器均实测验证。
+- ✅ `hms-backend/build/Release/hms-backend.exe` 双实例运行中：实例 A（8088，默认 config，直连 5432）+ 实例 B（8089，`config/drogon_config.b.json`，经 PgBouncer 6432）；启动第二实例：`Start-Process build\Release\hms-backend.exe -ArgumentList 'config/drogon_config.b.json' -WorkingDirectory hms-backend`，双实例一键脚本 `scripts/start_dual_instances.ps1`。
+- ✅ Redis 权限缓存（`perm:user:{id}`）、JWT 黑名单、审计刷盘、outbox 投递器均实测验证；realtime 生产者 leader 租约键 `ws:realtime:leader`。
 - ⚠️ hms-web 的 `node_modules` 与 `dist` 已被清理，需要时重新 `npm install && npm run build`（s4 已验证可构建）；hms-dashboard 已重新 `npm install`（M2 出口验证时装）。
 - ⚠️ `iot_raw_data` 现有 ~75 万行压测数据（分区表，不影响功能）；`iot.dlq` 有 1 条毒消息为验证证据。
 
 ## 六、遗留事项
 
 1. **publisher confirms**：vcpkg 版 SimpleAmqpClient 无 confirm API，配置项已预留；当前由 `mq_outbox` 表重投保证最终一致，待库升级后启用。
-2. Redis Cluster 模式为 M3 阶段事项，dev 环境显式禁用了 cluster。
-3. **下一步 = M3**：高可用 compose（replicas/Redis Cluster/RMQ quorum/PgBouncer/无状态扩容，任务 24-27）→ 可观测性+发布演练（任务 28-29）。
+2. prod compose 为声明+本机校验（config 通过）形态：backend 镜像需 CI 产出（当前仅本机 exe）；Redis/RMQ 集群与 PG 流复制的完整启动需在具备 docker swarm/大内存的环境执行。
+3. **下一步 = M3 任务 28-29**：可观测性（Prometheus 指标 + 看板降级策略）+ 发布演练（蓝绿/回滚/kill 实例自愈）。
 4. E2E 会在库里留下测试数据（E2E-/CR-/K6- 前缀），不影响断言，如需清理手工删除。
 
 ## 七、注意事项（踩坑清单，务必先读）
@@ -200,6 +208,13 @@ ctest --test-dir hms-backend/build -C Release
 34. **传感器阈值快照缓存 60s**（DataIngestHandler::sensorSnapshot）：新建传感器后立即发越限消息不会触发告警，需等缓存刷新（最多 60s）再发。
 35. **高负载下持续消费速率远低于空载探测值**：空载 3 万条 6s 排空（≥5k/s），复合压测 + 表增长后实测 ≈1.3k/s；容量结论必须标注负载条件，压测编排按可持续速率而非峰值灌入，否则积压无界。
 
+### M3 陷阱（PgBouncer/compose）
+
+36. **edoburu/pgbouncer 镜像容器内监听 5432 不是 6432**：端口映射必须 `-p 6432:5432`；且默认 `auth_type=md5` 与 PG16 的 scram-sha-256 不兼容（报 `wrong password type`），须加 `AUTH_TYPE=scram-sha-256`。
+37. **容器内 `host.docker.internal` 连宿主机发布端口不稳**（server login failed / closed connection）：需要访问其他 compose 容器时，用 `--network compose_default` + 容器名直连最可靠。
+38. **工单列表响应字段是 `data.list` 不是 `items`**；且只有报工满量自动完工才写 mq_outbox（`OutboxService::kEnqueueSql` 全项目唯一写入点），pause/start 等状态流转不写 outbox，验证投递器需造一个可报满的小量工单。
+39. **PS `Join-Path $PSScriptRoot '..\nginx\certs'` 相对路径以脚本目录解析**：scripts 下的脚本引用仓库其它目录必须写全相对层级（如 `..\deploy\nginx\certs`），否则产物落错目录。
+
 ## 八、关键文件索引
 
 | 文件 | 用途 |
@@ -225,3 +240,9 @@ ctest --test-dir hms-backend/build -C Release
 | `scripts/check_mq_topology.py` | MQ 拓扑声明与 broker 一致性门禁 |
 | `scripts/ws_load.py` | M2 出口 WS 延迟/连接数验证（latency/load 双模式，自带门禁输出） |
 | `perf/k6/m2_composite.js` | M2 出口复合压测（REST 门禁 P95<369ms = 基线×1.3） |
+| `deploy/compose/docker-compose.prod.yml` | M3 生产编排（Redis Cluster 6 节点/RMQ 3 节点/PG 主从/PgBouncer/Nginx TLS） |
+| `deploy/compose/rabbitmq-cluster.conf` | RMQ 集群组建（DNS 对等发现） |
+| `deploy/postgres/init_replica.sh` | PG 只读副本初始化（pg_basebackup + 复制槽） |
+| `scripts/gen_selfsigned_cert.ps1` | Nginx 自签证书生成（已实测） |
+| `scripts/start_dual_instances.ps1` | 双实例（8088/8089）一键启动 + healthz 检查 |
+| `hms-backend/config/drogon_config.b.json` | 第二实例配置（8089，DB 走 PgBouncer 6432） |

@@ -120,3 +120,23 @@
 容量校准（本机单机）：发布端 pika 峰值 12.7k msg/s（burst 无 confirm，正常 confirm 模式仅 ~104/s），计划 20k msg/s 不可达；**高负载+表 75 万行后持续消费速率实测 ≈1.3k msg/s**（空载探测 ≥5k/s），过载积压 144 万条 purge（模拟器数据）；prefetch 50→200（rabbitmq.json）。
 
 修错纪要：`ws_load.py` 初版按 `env.get("type")` 过滤永远不命中（信封契约无 type 字段，改按 channel）；hms-dashboard 直连后端登录被 CORS 拦截 → 改 vite proxy（/api + /ws）同源接入，useChannel 补自动登录取 token（后端 /ws 严格校验 query token）；传感器阈值快照缓存 60s，新建传感器后需等刷新才能触发告警。
+
+## M3 高可用与容量（任务 24-27，2026-08-13）
+
+### 任务 24 生产 compose
+
+`docker-compose.prod.yml` 从 replicas 占位改为显式拓扑：Redis Cluster redis-1..6 独立卷 + `redis-cluster-init` 幂等建群容器（`--cluster-replicas 1`）；RMQ rabbitmq-1/2/3 显式服务（共享 `HMS_MQ_COOKIE` + `rabbitmq-cluster.conf` DNS 对等发现 + 独立卷）；PG 主从（primary 加 `wal_level=replica`/`max_wal_senders`，replica 由 `init_replica.sh` pg_basebackup -R -C 预填充）；Nginx TLS+WSS 配 `scripts/gen_selfsigned_cert.ps1`（实测生成 hms.crt/hms.key，含 SAN）。`docker compose config` 校验通过。backend 镜像由 CI 产出（当前仓库仅本机 exe，为已知遗留）。
+
+### 任务 25 PgBouncer transaction + 读写分离
+
+会话无关审查：全后端代码无 LISTEN/NOTIFY/临时表/游标/会话级 SET；advisory lock 仅 `pg_try_advisory_xact_lock`（事务结束即释放，transaction 模式安全）；Drogon 参数化语句为单往返扩展协议，不在服务端保留命名 prepared。灰度实证：edoburu/pgbouncer（`-p 6432:5432` + `AUTH_TYPE=scram-sha-256`，compose_default 网络直连 hms-postgres）起池，实例 B（drogon_config.b.json，port 6432）重启后登录/工单列表/报工事务全通；`pg_stat_activity` 对照：A 直连 64 条 vs B 经池仅 2 条服务端连接。切换依据实证：双实例 2×64 曾报 too many clients（PG 默认 100），已调 max_connections=300。只读副本 DSN `HMS_PG_RO_DSN` 已在 prod compose 声明。
+
+### 任务 26 无状态扩容实测（双实例 8088/8089）
+
+代码改造（WsBroadcastManager）：① `publish()` 一律经 Redis `PUBLISH ws:broadcast:{channel}` 扇出（发完整信封），订阅端收到带 version/channel/payload 的信封直接入合并窗口，裸载荷走 `publishLocal` 本实例包装（防双层信封）；② realtime 生产者改 leader 选举：Redis 租约 `ws:realtime:leader`（PX 3000，1Hz GET→XX 续约/NX 抢占），全集群仅一实例查库生产。
+
+实测：跨实例广播——同连两实例订阅 production.realtime+alert，两实例均收齐（`gate_cross_instance_broadcast=true`）；outbox 恰好一次——双实例投递器并发运行下，造 plan_qty=10 工单在实例 B 报满触发 stop_collection，临时绑定队列计数收到恰好 1 条（`gate_outbox_exactly_once=true`，advisory lock 互斥 + SKIP LOCKED）。注：工单列表字段是 `data.list`；只有报满完工才写 outbox，pause 不写。
+
+### 任务 27 容量总验收（校准版）
+
+结论：本机复合门禁通过（M2 出口 10min 数据：P95=277.67ms / failed=0.01% / api_err=0.01% / 3099 rps）；计划原目标（20k msg/s + 5k QPS + 2h）本机不可达：发布峰值 12.7k burst、高负载持续消费 ≈1.3k/s。GA 门槛：标准环境按 m2_composite.js 加长至 2h 复跑三指标 + DLQ 增量≈0 + 分区巡检。

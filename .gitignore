@@ -34,3 +34,9 @@ spike/*/build/
 
 # TypeScript 增量编译缓存
 *.tsbuildinfo
+
+# TLS 证书产物 (含私钥, 由 scripts/gen_selfsigned_cert.ps1 生成)
+deploy/nginx/certs/
+
+# 临时验证脚本/输出
+tmp_*

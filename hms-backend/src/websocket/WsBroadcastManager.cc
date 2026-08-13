@@ -8,6 +8,8 @@
 #include <chrono>
 #include <memory>
 #include <mutex>
+#include <random>
+#include <sstream>
 #include <thread>
 #include <unordered_map>
 #include <vector>
@@ -72,17 +74,19 @@ void drainPending() {
     }
 }
 
+// ---- ??? leader ?? (???? 26): production.realtime ????????? ----
+// Redis ?? ws:realtime:leader (PX 3000, 1Hz ??); ??????? 3s ????????
+const std::string kLeaderKey = "ws:realtime:leader";
+const std::string kInstanceId = [] {
+    std::random_device rd;
+    std::ostringstream oss;
+    oss << "hms-" << std::chrono::steady_clock::now().time_since_epoch().count() << "-" << rd();
+    return oss.str();
+}();
+
 // ?????????: 1Hz ?????? (status=3) ??
-void publishProductionRealtime() {
-    size_t subs = 0;
-    {
-        std::lock_guard lk(g_mu);
-        auto it = g_subs.find("production.realtime");
-        if (it != g_subs.end())
-            subs = it->second.size();
-    }
-    if (subs == 0)
-        return;
+// (????????: leader ????????????, ? publish?Redis ?????)
+void queryAndPushRealtime() {
     auto db = drogon::app().getDbClient();
     db->execSqlAsync(
         "SELECT wo.work_order_no, wo.line_id, COALESCE(l.line_name,'') AS line_name, "
@@ -114,6 +118,48 @@ void publishProductionRealtime() {
         [](const drogon::orm::DrogonDbException& e) {
             LOG_WARN << "[ws] production.realtime query failed: " << e.base().what();
         });
+}
+
+// 1Hz tick: ?????? ?? ??????????, ???? NX ?? (?????)
+void publishProductionRealtime() {
+    auto rdb = drogon::app().getRedisClient();
+    rdb->execCommandAsync(
+        [](const drogon::nosql::RedisResult& res) {
+            bool mine = false;
+            try {
+                mine = res.type() == drogon::nosql::RedisResultType::kString &&
+                       res.asString() == kInstanceId;
+            } catch (...) {
+            }
+            auto rdb2 = drogon::app().getRedisClient();
+            if (mine) {
+                rdb2->execCommandAsync(
+                    [](const drogon::nosql::RedisResult&) { queryAndPushRealtime(); },
+                    [](const drogon::nosql::RedisException&) {},
+                    "SET %s %s PX 3000 XX", kLeaderKey.c_str(), kInstanceId.c_str());
+            } else {
+                rdb2->execCommandAsync(
+                    [](const drogon::nosql::RedisResult& r2) {
+                        try {
+                            if (r2.type() == drogon::nosql::RedisResultType::kString &&
+                                r2.asString() == "OK")
+                                queryAndPushRealtime();
+                        } catch (...) {
+                        }
+                    },
+                    [](const drogon::nosql::RedisException&) {},
+                    "SET %s %s NX PX 3000", kLeaderKey.c_str(), kInstanceId.c_str());
+            }
+        },
+        [](const drogon::nosql::RedisException&) {},
+        "GET %s", kLeaderKey.c_str());
+}
+
+// ????????????????? (?????? Redis ????????)
+void publishLocal(const std::string& channel, const nlohmann::json& payload) {
+    auto env = envelope(channel, payload);
+    std::lock_guard lk(g_mu);
+    g_pending[channel] = std::move(env); // ???????? (????)
 }
 
 // Redis Pub/Sub ???? (hiredis ????; ?? 5s ??)
@@ -162,7 +208,16 @@ void redisSubscribeLoop(const std::string& host, int port) {
                 if (topic.rfind(kRedisPrefix, 0) == 0) {
                     auto channel = topic.substr(std::string(kRedisPrefix).size());
                     try {
-                        publish(channel, nlohmann::json::parse(body));
+                        auto j = nlohmann::json::parse(body);
+                        if (j.value("version", "") == "1.0" && j.value("channel", "") == channel &&
+                            j.contains("payload")) {
+                            // ?????? (??? publish() ??): ???????, ?????
+                            std::lock_guard lk(g_mu);
+                            g_pending[channel] = body;
+                        } else {
+                            // ??? (AlertHandler/DataIngestHandler ??): ???????
+                            publishLocal(channel, j);
+                        }
                     } catch (const std::exception& e) {
                         LOG_WARN << "[ws] broadcast payload parse failed: " << e.what();
                     }
@@ -179,10 +234,20 @@ void redisSubscribeLoop(const std::string& host, int port) {
 
 } // namespace
 
+// ?????? (???, ?? 26): ??? Redis Pub/Sub ?? ??
+// ??? redisSubscribeLoop ??????????????????,
+// ????????? (??????????????)?
 void publish(const std::string& channel, const nlohmann::json& payload) {
+    // ????????: ?????????? (????????????);
+    // ?????? production.realtime (1Hz ??), Redis ??????
     auto env = envelope(channel, payload);
-    std::lock_guard lk(g_mu);
-    g_pending[channel] = std::move(env); // ???????? (????)
+    auto rdb = drogon::app().getRedisClient();
+    auto ch = std::string(kRedisPrefix) + channel;
+    rdb->execCommandAsync([](const drogon::nosql::RedisResult&) {},
+                          [](const drogon::nosql::RedisException& e) {
+                              LOG_WARN << "[ws] publish failed: " << e.what();
+                          },
+                          "PUBLISH %s %s", ch.c_str(), env.c_str());
 }
 
 void subscribe(const std::string& channel, const drogon::WebSocketConnectionPtr& conn) {
