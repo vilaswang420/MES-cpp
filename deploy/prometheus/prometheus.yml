@@ -1,0 +1,14 @@
+# Prometheus 抓取配置 (M3 任务 28): docker-compose.prod.yml 的 prometheus 服务挂载本文件
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  # backend 双副本: swarm 下 service DNS 轮询抓取 (每实例指标独立, 标签带 instance)
+  - job_name: hms-backend
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["backend:8088"]

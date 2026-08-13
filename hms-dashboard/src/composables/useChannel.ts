@@ -20,7 +20,7 @@ const API_BASE = (import.meta.env.VITE_API_BASE as string) ?? "";
 let tokenPromise: Promise<string> | null = null;
 
 // 获取 WS 接入 token: localStorage 覆盖 > 自动登录 (失败返回空串, 连接将被后端拒绝并重连)
-function acquireToken(): Promise<string> {
+export function acquireToken(): Promise<string> {
     const cached = localStorage.getItem("hms_ws_token");
     if (cached) return Promise.resolve(cached);
     if (!tokenPromise) {
@@ -41,6 +41,9 @@ function acquireToken(): Promise<string> {
 
 export function useChannel(channel: string, onMessage: (payload: Record<string, unknown>, ts: string) => void) {
     const connected = ref(false);
+    // 降级态 (任务 28 看板降级策略): 连续重连失败 >= 3 次置 true,
+    // 页面据此切 REST 轮询展示历史数据; WS 恢复后自动回 false
+    const degraded = ref(false);
     let ws: WebSocket | null = null;
     let retry = 0;
     let closed = false;
@@ -53,6 +56,7 @@ export function useChannel(channel: string, onMessage: (payload: Record<string, 
             ws = new WebSocket(`${WS_BASE}?token=${encodeURIComponent(token)}`);
             ws.onopen = () => {
                 connected.value = true;
+                degraded.value = false;
                 retry = 0;
                 ws?.send(JSON.stringify({ action: "subscribe", channel }));
             };
@@ -67,6 +71,7 @@ export function useChannel(channel: string, onMessage: (payload: Record<string, 
             ws.onclose = () => {
                 connected.value = false;
                 if (closed) return;
+                if (retry >= 3) degraded.value = true;
                 const delay = Math.min(30000, 1000 * 2 ** retry++);
                 timer = setTimeout(connect, delay);
             };
@@ -82,5 +87,5 @@ export function useChannel(channel: string, onMessage: (payload: Record<string, 
         ws?.close();
     });
 
-    return { connected };
+    return { connected, degraded };
 }

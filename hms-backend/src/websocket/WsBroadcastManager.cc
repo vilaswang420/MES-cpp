@@ -14,6 +14,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "utils/Metrics.hh"
 #include "utils/TimeUtils.hh"
 
 namespace hms::WsBroadcastManager {
@@ -70,6 +71,7 @@ void drainPending() {
             if (!sub.conn->connected())
                 continue;
             sub.conn->send(env, drogon::WebSocketMessageType::Text);
+            Metrics::counterInc("hms_ws_broadcast_delivered_total");
         }
     }
 }
@@ -243,6 +245,7 @@ void publish(const std::string& channel, const nlohmann::json& payload) {
     auto env = envelope(channel, payload);
     auto rdb = drogon::app().getRedisClient();
     auto ch = std::string(kRedisPrefix) + channel;
+    Metrics::counterInc("hms_ws_broadcast_published_total");
     rdb->execCommandAsync([](const drogon::nosql::RedisResult&) {},
                           [](const drogon::nosql::RedisException& e) {
                               LOG_WARN << "[ws] publish failed: " << e.what();

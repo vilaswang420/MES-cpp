@@ -10,6 +10,7 @@
 
 #include "common/SqlParam.hh"
 #include "mq/MqProducer.hh"
+#include "utils/Metrics.hh"
 
 namespace hms::OutboxDispatcher {
 
@@ -78,9 +79,11 @@ drogon::Task<> tick() {
                 return MqProducer::publishSync(exchange, routingKey, payload);
             });
             if (ok) {
+                Metrics::counterInc("hms_outbox_dispatched_total");
                 co_await trans->execSqlCoro(
                     "UPDATE mq_outbox SET status = 1, sent_at = NOW() WHERE id = $1", SqlArg(id));
             } else {
+                Metrics::counterInc("hms_outbox_dispatch_failed_total");
                 co_await trans->execSqlCoro(
                     "UPDATE mq_outbox SET status = 2, retry_count = retry_count + 1 "
                     "WHERE id = $1",

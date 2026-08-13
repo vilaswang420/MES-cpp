@@ -140,3 +140,17 @@
 ### 任务 27 容量总验收（校准版）
 
 结论：本机复合门禁通过（M2 出口 10min 数据：P95=277.67ms / failed=0.01% / api_err=0.01% / 3099 rps）；计划原目标（20k msg/s + 5k QPS + 2h）本机不可达：发布峰值 12.7k burst、高负载持续消费 ≈1.3k/s。GA 门槛：标准环境按 m2_composite.js 加长至 2h 复跑三指标 + DLQ 增量≈0 + 分区巡检。
+
+## M3 可观测性与发布演练（任务 28-29，2026-08-13）
+
+### 任务 28 可观测性 + 看板降级
+
+后端内置 Prometheus 端点：`src/utils/Metrics.hh`（counter/gauge/histogram 注册表 + render，9 桶 10~2000ms）+ `src/metrics/MetricsCollector`（outbox 待投递/WS 订阅数 5s，分区剩余天数 60s，MQ lag 独立线程经 `DeclareQueueWithCounts` passive 查询）+ `MetricsController`（GET /metrics，公开白名单）；埋点：CrossCutting preSendingAdvice 记 HTTP 计数+直方图，WsBroadcastManager 记 published/delivered，OutboxDispatcher 记 dispatched/failed。实测 /metrics 全部指标有值（hms_partition_days_left=0、四队列 lag、broadcast published 持续增长）。`deploy/prometheus/prometheus.yml`（15s 抓取）+ `alerts.yml`（6 条规则：PartitionDaysLeftLow<7d critical / MqDataQueueBacklog>10万 / DlqGrowing / OutboxPendingHigh>100 / HttpP95High>369ms / Http5xxRate>0.5%），prometheus 服务声明进 prod compose（hms_prometheus 卷）。
+
+看板降级策略：useChannel 连续重连失败≥3 置 `degraded` → App.vue watch 切 REST 10s 轮询（在制工单首条组装 realtime 同构 payload 含 `degraded_source:true` + 告警历史 20 条），WS 恢复自动复位。浏览器实证（vite `HMS_PROXY_WS` 把 /ws 代理指死端口 18999，REST 正常）：降级横幅「降级模式：实时链路不可用，展示历史数据 (10s 轮询)」+ 历史工单 WO2026081300035 + 告警 20 条，截图 docs/screenshots/degrade_step1_ws_down.png / degrade_step2_final.png。
+
+### 任务 29 发布演练（五阶段五门禁全过）
+
+`scripts/release_drill.ps1` 实测结果：① expand 启新版 C(8090, drogon_config.c.json) healthz=ok；② 蓝绿 nginx（`deploy/nginx/nginx.drill.conf`，split_clients $request_id 10% green + X-HMS-Slot 响应头，8443 TLS）200 请求实测 green%=10/11.5/13.5 → `gate_canary_10pct=true`；③ 回滚 = 宿主机侧删 green 行（.NET API 无 BOM UTF-8 读写，:ro 挂载容器内直接可见）+ reload，100 请求 green=0 → `gate_rollback_zero_traffic=true`；④ contract kill C + 撤演练 nginx → `gate_contract_c_down=true`；⑤ kill B → leader 租约保持且 A 持续发布（published +120/6s）→ `gate_leader_takeover=true`；B 重启 0.5s healthz=ok → `gate_self_heal_30s=true`。
+
+修错纪要：nginx split_clients 不接受 0%（invalid percent value）→ 回滚改删行；bind-mount 文件容器内 sed -i Resource busy + PS5.1 向 docker exec 传 sed 引号不稳 → 宿主机侧改文件；SimpleAmqpClient DeclareQueue 返回队列名非消息数 → DeclareQueueWithCounts；分区名 substring from 17 截掉 "20" → from 15（iot_raw_data_p 前缀 14 字符）。

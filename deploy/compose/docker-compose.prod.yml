@@ -205,6 +205,18 @@ services:
     depends_on:
       - backend
 
+  # 可观测性 (任务 28): 指标抓取 + 告警规则评估
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    volumes:
+      - ../prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - hms_prometheus:/data
+    ports:
+      - "9090:9090"
+    depends_on:
+      - backend
+
 volumes:
   hms_pg_primary:
   hms_pg_replica:
@@ -217,5 +229,6 @@ volumes:
   hms_rmq_1:
   hms_rmq_2:
   hms_rmq_3:
+  hms_prometheus:
   hms_web_dist:
   hms_dashboard_dist:

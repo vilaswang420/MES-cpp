@@ -1,8 +1,8 @@
 <!-- 大屏根组件 (计划任务 21): 三频道布局 = 生产实时 / 设备状态 / 告警。
-     WS 链路 (WsBroadcastManager) 在 M2 交付前, 页面保持空态 + 连接状态指示。 -->
+     降级策略 (任务 28): WS 连续重连失败 → REST 轮询展示历史数据 (IoT/实时链路宕机不影响看板可用性)。 -->
 <script setup lang="ts">
-import { reactive, ref } from "vue";
-import { useChannel } from "./composables/useChannel";
+import { reactive, ref, watch } from "vue";
+import { acquireToken, useChannel } from "./composables/useChannel";
 
 interface AlertItem {
     ts: string;
@@ -33,6 +33,68 @@ useChannel("alert", (payload, ts) => {
     });
     if (alerts.value.length > 50) alerts.value.pop();
 });
+
+// ---- 降级模式: WS 不可达时轮询 REST 历史数据 (任务 28) ----
+let pollTimer: ReturnType<typeof setInterval> | undefined;
+
+async function api(path: string): Promise<Record<string, unknown> | null> {
+    const token = await acquireToken();
+    if (!token) return null;
+    try {
+        const r = await fetch(path, { headers: { Authorization: `Bearer ${token}` } });
+        const j = await r.json();
+        return j.code === 200 ? (j.data as Record<string, unknown>) : null;
+    } catch {
+        return null;
+    }
+}
+
+async function fetchSnapshot() {
+    // 生产实时降级源: 在制工单列表首条 (与 realtime 推送同数据源)
+    const wo = (await api("/api/v1/production/work-orders?page=1&page_size=1&status=3")) as
+        { list?: Record<string, unknown>[] } | null;
+    const first = wo?.list?.[0];
+    if (first) {
+        const plan = Number(first.plan_qty ?? 0);
+        const good = Number(first.good_qty ?? 0);
+        Object.assign(production, {
+            work_order_no: first.work_order_no,
+            product_name: first.product_name,
+            line_name: first.line_name,
+            target_qty: plan,
+            completed_qty: first.completed_qty,
+            good_qty: good,
+            defect_qty: first.defect_qty,
+            oee: plan > 0 ? (good * 100) / plan : 0,
+            status: first.status,
+            timestamp: new Date().toISOString(),
+            degraded_source: true,
+        });
+        lastTs.value = new Date().toISOString();
+    }
+    // 告警降级源: 最近告警历史
+    const al = (await api("/api/v1/iot/alerts?page=1&page_size=20")) as
+        { list?: Record<string, unknown>[] } | null;
+    if (al?.list?.length) {
+        alerts.value = al.list.map((a) => ({
+            ts: String(a.created_at ?? a.ts ?? ""),
+            device_code: String(a.device_code ?? a.device_name ?? ""),
+            level: String(a.alert_level ?? "info"),
+            message: String(a.message ?? ""),
+        }));
+    }
+}
+
+watch(p1.degraded, (d) => {
+    if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = undefined;
+    }
+    if (d) {
+        void fetchSnapshot();
+        pollTimer = setInterval(() => void fetchSnapshot(), 10000);
+    }
+}, { immediate: true });
 </script>
 
 <template>
@@ -41,7 +103,8 @@ useChannel("alert", (payload, ts) => {
             <h1>HMS 生产实时看板</h1>
             <div class="status">
                 <span :class="['dot', p1.connected.value ? 'on' : 'off']"></span>
-                <span>{{ p1.connected.value ? "实时连接正常" : "连接断开, 重连中..." }}</span>
+                <span v-if="p1.degraded.value" class="degraded">降级模式：实时链路不可用，展示历史数据 (10s 轮询)</span>
+                <span v-else>{{ p1.connected.value ? "实时连接正常" : "连接断开, 重连中..." }}</span>
                 <span v-if="lastTs" class="ts">最后推送: {{ lastTs }}</span>
             </div>
         </header>
@@ -107,6 +170,10 @@ useChannel("alert", (payload, ts) => {
 }
 .dot.off {
     background: #ef4444;
+}
+.degraded {
+    color: #fbbf24;
+    font-weight: 600;
 }
 .ts {
     color: #7c8db5;

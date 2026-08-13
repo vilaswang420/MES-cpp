@@ -14,6 +14,7 @@
 #include "middlewares/perm_routes.hh"
 #include "services/RbacService.hh"
 #include "utils/JwtUtils.hh"
+#include "utils/Metrics.hh"
 
 namespace hms {
 
@@ -269,6 +270,21 @@ void recordAudit(const drogon::HttpRequestPtr& req, const drogon::HttpResponsePt
 
 } // namespace
 
+// ---------- HTTP 指标 (计划任务 28): QPS/状态码/延迟直方图 ----------
+// 在 preSendingAdvice 埋点: 覆盖成功与拦截响应 (401/403/404 同样计入)
+void recordHttpMetrics(const drogon::HttpRequestPtr& req, const drogon::HttpResponsePtr& resp) {
+    if (!req || !resp)
+        return;
+    const std::string method = req->methodString();
+    const int status = static_cast<int>(resp->statusCode());
+    Metrics::counterInc("hms_http_requests_total{method=\"" + method + "\",status=\"" +
+                        std::to_string(status) + "\"}");
+    if (auto attrs = req->getAttributes(); attrs && attrs->find("req_start_us")) {
+        double ms = (nowUs() - attrs->get<int64_t>("req_start_us")) / 1000.0;
+        Metrics::histogramObserve("hms_http_request_duration_ms", ms);
+    }
+}
+
 std::string genTraceId() {
     static thread_local std::mt19937_64 rng{std::random_device{}()};
     std::ostringstream oss;
@@ -302,9 +318,11 @@ void installCrossCutting() {
             recordAudit(req, resp);
         });
 
-    // 回写 X-Trace-Id 响应头 (ApiResponse 信封已自带, 此处兜底非信封响应)
+    // 回写 X-Trace-Id 响应头 (ApiResponse 信封已自带, 此处兜底非信封响应);
+    // 同时埋点 HTTP 指标 (任务 28): 所有出站响应都经过本 advice
     drogon::app().registerPreSendingAdvice(
         [](const drogon::HttpRequestPtr& req, const drogon::HttpResponsePtr& resp) {
+            recordHttpMetrics(req, resp);
             if (resp && req->getAttributes() && req->getAttributes()->find("trace_id"))
                 resp->addHeader("X-Trace-Id", req->getAttributes()->get<std::string>("trace_id"));
         });

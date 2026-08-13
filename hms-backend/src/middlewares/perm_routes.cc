@@ -56,6 +56,8 @@ void init() {
 
     // ---- 公开白名单 (显式放行, 不允许"恰好没配权限"式放行) ----
     addPublic("/healthz", "GET");
+    // Prometheus 抓取端点 (任务 28): 只读运行指标, 生产由 Nginx 限制来源网段
+    addPublic("/metrics", "GET");
     addPublic("/api/v1/auth/login", "POST");
     addPublic("/api/v1/auth/captcha", "GET");
     // WS 升级请求放行 advice 链; 身份在 WsController 以 query token 严格校验 (fail-closed)

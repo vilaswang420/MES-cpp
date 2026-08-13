@@ -4,6 +4,7 @@
 #include <fstream>
 
 #include "common/ApiResponse.hh"
+#include "metrics/MetricsCollector.hh"
 #include "middlewares/CrossCutting.hh"
 #include "middlewares/perm_routes.hh"
 #include "mq/AlertHandler.hh"
@@ -75,6 +76,7 @@ int main(int argc, char** argv) {
         hms::StopCollectionHandler::start(mqCfg); // 停采消费日志占位
         hms::WsBroadcastManager::start();         // WS 广播: Redis 订阅+合并推送 (任务 21)
         hms::startAuditFlusher();                 // 审计批量刷盘
+        hms::MetricsCollector::start();           // Prometheus 指标采集 (任务 28)
         LOG_INFO << "hms-backend started";
     });
 
@@ -84,6 +86,7 @@ int main(int argc, char** argv) {
     hms::AlertHandler::stop();
     hms::StopCollectionHandler::stop();
     hms::WsBroadcastManager::stop();
+    hms::MetricsCollector::stop();
     hms::MqProducer::shutdown();
     return 0;
 }

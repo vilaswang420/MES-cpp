@@ -3,6 +3,7 @@
 #include <SimpleAmqpClient/SimpleAmqpClient.h>
 #include <drogon/drogon.h>
 
+#include <cstdint>
 #include <mutex>
 
 namespace hms::MqProducer {
@@ -57,6 +58,24 @@ bool publishSync(const std::string& exchange, const std::string& routingKey,
         // 连接可能已坏: 丢弃触发下次重建
         g_channel.reset();
         return false;
+    }
+}
+
+// 指标采集 (任务 28): passive declare 取队列积压深度, 失败返回 -1
+int64_t queueMessageCount(const std::string& queue) {
+    std::lock_guard lock(g_mutex);
+    if (!ensureChannelLocked())
+        return -1;
+    try {
+        uint32_t msgs = 0;
+        uint32_t consumers = 0;
+        g_channel->DeclareQueueWithCounts(queue, msgs, consumers, true /*passive*/, true, false,
+                                          false, AmqpClient::Table());
+        return msgs;
+    } catch (const std::exception& e) {
+        LOG_WARN << "amqp queue depth probe failed (" << queue << "): " << e.what();
+        g_channel.reset();
+        return -1;
     }
 }
 

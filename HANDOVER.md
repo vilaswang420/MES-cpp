@@ -1,6 +1,6 @@
 # HMS 项目交接文档
 
-> 面向新会话 / 新接手者的完整交接。阅读本文后再开始工作。最近更新：2026-08-13（M1 出口全部门禁通过含 k6 第 7 轮；M2 全部完成含出口验证；M3 任务 24-27 完成：生产 compose 定稿、PgBouncer transaction 灰度实证、双实例无状态扩容三项实测、容量校准版验收结论，剩任务 28-29）。
+> 面向新会话 / 新接手者的完整交接。阅读本文后再开始工作。最近更新：2026-08-13（M1 出口全部门禁通过含 k6 第 7 轮；M2 全部完成含出口验证；M3 全部完成：任务 24-27 高可用四项 + 任务 28 可观测性（Prometheus 指标+告警规则+看板降级浏览器实证）+ 任务 29 发布演练（蓝绿/回滚/expand-contract/kill 自愈五门禁全过）。计划任务 1-29 全部完成）。
 
 ## 一、项目概况
 
@@ -79,7 +79,7 @@ M1 期间根治的三类 drogon 陷阱（新增代码必须遵守，详见踩坑
 
 容量校准依据（本机单机，2026-08-13）：发布端 pika 峰值 12.7k msg/s（burst 无 confirm），计划 20k msg/s 目标本机不可达；复合期间按可持续均值 ~3.7k msg/s 灌入；**高负载下实测持续消费速率 ≈ 1.3k msg/s**（低于空载探测 ≥5k/s，表增长+复合负载所致），过载积压 144 万条后 purge（模拟器数据）。消费 lag 在发布≤消费容量时实测 < 2s（延迟验证）。
 
-### M3 进展（2026-08-13，任务 24-27 完成）
+### M3 进展（2026-08-13，任务 24-29 全部完成）
 
 | 任务 | 结论 |
 |---|---|
@@ -87,6 +87,8 @@ M1 期间根治的三类 drogon 陷阱（新增代码必须遵守，详见踩坑
 | 25 PgBouncer transaction + 读写分离 | ✅ 会话无关审查通过：全代码无 LISTEN/NOTIFY/临时表/游标/会话级 SET，advisory lock 仅用事务级 `pg_try_advisory_xact_lock`，Drogon 参数化语句单往返不驻留服务端；**灰度实证**：实例 B 经 PgBouncer（edoburu 镜像，transaction 模式）跑登录/列表/报工事务全通，PG 侧仅 2 条服务端连接复用 64 客户端（对照实例 A 直连 64 条）；切换依据：双实例 2×64 连接曾超 PG 默认 max_connections=100（已调 300）；只读副本 DSN 已声明 `HMS_PG_RO_DSN` |
 | 26 无状态扩容验证 | ✅ 三项实测全过：① WS 跨实例广播——双实例（8088/8089）客户端均收到 realtime+alert（`gate_cross_instance_broadcast=true`）；② realtime 生产者 leader 选举（Redis 租约 `ws:realtime:leader`，全集群单实例生产）；③ outbox 恰好一次——双实例投递器并发运行下，临时队列计数收到 stop_collection 恰好 1 条（`gate_outbox_exactly_once=true`，advisory lock 互斥）；JWT 黑名单/权限缓存本就全走 Redis；IoT 副本数公式 ceil(设备数/5000) 已在设计文档 |
 | 27 容量总验收（校准版） | ✅ 结论：本机复合门禁通过（M2 出口 10min：P95=277.67ms / failed=0.01% / api_err=0.01%）；计划原目标 20k msg/s + 5k QPS + 2 小时本机不可达（发布峰值 12.7k burst、持续消费 ≈1.3k/s，见容量校准依据）——**GA 前须在标准环境按 `perf/k6/m2_composite.js` 加长至 2h 复跑**，本机校准版作为门禁基线 |
+| 28 可观测性 + 看板降级 | ✅ 后端内置 Prometheus 端点 `GET /metrics`（公开白名单）：`hms_http_requests_total`/`hms_http_request_duration_ms`（9 桶直方图）/`hms_outbox_pending`/`hms_mq_queue_messages{queue}`（DeclareQueueWithCounts passive）/`hms_partition_days_left`/`hms_ws_subscribers`/`hms_ws_broadcast_published_total` 等，实测全部指标有值；`deploy/prometheus/prometheus.yml`（15s 抓取）+ `alerts.yml`（6 条：分区剩余<7d/MQ 积压>10万/DLQ 增长/outbox>100/P95>369ms/5xx>0.5%），prometheus 服务已声明进 prod compose；看板降级策略实测：useChannel 连续重连失败≥3 置 degraded → App.vue 切 REST 10s 轮询展示历史数据，**浏览器实证**（WS 代理指死端口）：降级横幅+历史工单 WO2026081300035（degraded_source=true）+告警列表 20 条，截图 `docs/screenshots/degrade_step2_final.png` |
+| 29 发布演练 | ✅ `scripts/release_drill.ps1` 五阶段实测全过：① expand 启新版 C(8090, `drogon_config.c.json`)；② 蓝绿 nginx（`deploy/nginx/nginx.drill.conf`，split_clients $request_id 10%）200 请求 green%=10~13.5 → `gate_canary_10pct=true`；③ 回滚（删 green 行 reload）100 请求 green=0 → `gate_rollback_zero_traffic=true`；④ contract kill C + 撤 nginx → `gate_contract_c_down=true`；⑤ kill B → leader 租约保持 + A 继续发布（published +120）→ `gate_leader_takeover=true`，B 重启 0.5s 恢复 → `gate_self_heal_30s=true` |
 
 ## 三、环境与工具链（重要，坑多）
 
@@ -141,7 +143,7 @@ ctest --test-dir hms-backend/build -C Release
 
 - ✅ hms-postgres（max_connections=300）/ hms-redis / hms-rabbitmq 三容器运行中且 healthy；另有 **hms-pgbouncer**（edoburu/pgbouncer，transaction 模式，宿主机 6432 → 容器内 5432，compose_default 网络）。
 - ✅ 开发库 `hms` 已迁移至最新版本；`partman.part_config` 2 行、`cron.job` 2 个维护作业。
-- ✅ `hms-backend/build/Release/hms-backend.exe` 双实例运行中：实例 A（8088，默认 config，直连 5432）+ 实例 B（8089，`config/drogon_config.b.json`，经 PgBouncer 6432）；启动第二实例：`Start-Process build\Release\hms-backend.exe -ArgumentList 'config/drogon_config.b.json' -WorkingDirectory hms-backend`，双实例一键脚本 `scripts/start_dual_instances.ps1`。
+- ✅ `hms-backend/build/Release/hms-backend.exe` 双实例运行中：实例 A（8088，默认 config，直连 5432）+ 实例 B（8089，`config/drogon_config.b.json`，经 PgBouncer 6432）；启动第二实例：`Start-Process build\Release\hms-backend.exe -ArgumentList 'config/drogon_config.b.json' -WorkingDirectory hms-backend`，双实例一键脚本 `scripts/start_dual_instances.ps1`。`GET /metrics` 两实例均已开放。
 - ✅ Redis 权限缓存（`perm:user:{id}`）、JWT 黑名单、审计刷盘、outbox 投递器均实测验证；realtime 生产者 leader 租约键 `ws:realtime:leader`。
 - ⚠️ hms-web 的 `node_modules` 与 `dist` 已被清理，需要时重新 `npm install && npm run build`（s4 已验证可构建）；hms-dashboard 已重新 `npm install`（M2 出口验证时装）。
 - ⚠️ `iot_raw_data` 现有 ~75 万行压测数据（分区表，不影响功能）；`iot.dlq` 有 1 条毒消息为验证证据。
@@ -150,7 +152,7 @@ ctest --test-dir hms-backend/build -C Release
 
 1. **publisher confirms**：vcpkg 版 SimpleAmqpClient 无 confirm API，配置项已预留；当前由 `mq_outbox` 表重投保证最终一致，待库升级后启用。
 2. prod compose 为声明+本机校验（config 通过）形态：backend 镜像需 CI 产出（当前仅本机 exe）；Redis/RMQ 集群与 PG 流复制的完整启动需在具备 docker swarm/大内存的环境执行。
-3. **下一步 = M3 任务 28-29**：可观测性（Prometheus 指标 + 看板降级策略）+ 发布演练（蓝绿/回滚/kill 实例自愈）。
+3. ~~下一步 = M3 任务 28-29~~ 已完成；剩余为 GA 前事项：标准环境 2h 容量复跑（见任务 27 结论）、backend 镜像 CI 产出、publisher confirms 待库升级。
 4. E2E 会在库里留下测试数据（E2E-/CR-/K6- 前缀），不影响断言，如需清理手工删除。
 
 ## 七、注意事项（踩坑清单，务必先读）
@@ -215,6 +217,13 @@ ctest --test-dir hms-backend/build -C Release
 38. **工单列表响应字段是 `data.list` 不是 `items`**；且只有报工满量自动完工才写 mq_outbox（`OutboxService::kEnqueueSql` 全项目唯一写入点），pause/start 等状态流转不写 outbox，验证投递器需造一个可报满的小量工单。
 39. **PS `Join-Path $PSScriptRoot '..\nginx\certs'` 相对路径以脚本目录解析**：scripts 下的脚本引用仓库其它目录必须写全相对层级（如 `..\deploy\nginx\certs`），否则产物落错目录。
 
+### M3 可观测性/发布演练陷阱
+
+40. **nginx `split_clients` 不接受 `0%`**（reload 报 `invalid percent value`）：蓝绿回滚的标准做法是删除灰度行由 `*` 全量承接，而不是把百分比改 0。
+41. **bind-mount 的配置文件容器内 `sed -i` 会 Resource busy**（无法 rename 覆盖）；叠加 PS5.1 向 `docker exec` 传 sed 引号不稳，最终方案：宿主机侧 .NET API 改文件（`UTF8Encoding($false)` 防中文注释被默认编码破坏；`Set-Content` 不可用）+ 挂载 :ro 自动可见 + `nginx -s reload`。
+42. **SimpleAmqpClient `DeclareQueue` 返回队列名不返回消息数**：取队列积压须用 `DeclareQueueWithCounts(queue, msgs, consumers, passive, ...)`（passive=true 只查不建）。
+43. **分区名取日期注意前缀长度**：`iot_raw_data_p` 前缀是 14 字符，`substring(relname from 15)` 才能取全 `YYYYMMDD`；写错（from 17）会得 `260813` 报 `value out of range`。
+
 ## 八、关键文件索引
 
 | 文件 | 用途 |
@@ -246,3 +255,9 @@ ctest --test-dir hms-backend/build -C Release
 | `scripts/gen_selfsigned_cert.ps1` | Nginx 自签证书生成（已实测） |
 | `scripts/start_dual_instances.ps1` | 双实例（8088/8089）一键启动 + healthz 检查 |
 | `hms-backend/config/drogon_config.b.json` | 第二实例配置（8089，DB 走 PgBouncer 6432） |
+| `hms-backend/config/drogon_config.c.json` | 演练新版实例配置（8090，任务 29 expand 用） |
+| `hms-backend/src/utils/Metrics.hh` + `src/metrics/MetricsCollector.*` | Prometheus 指标注册表 + 采集器（outbox/分区/MQ lag/WS 订阅） |
+| `deploy/prometheus/prometheus.yml` + `alerts.yml` | Prometheus 抓取配置 + 6 条告警规则（prod compose 已挂 prometheus 服务） |
+| `deploy/nginx/nginx.drill.conf` | 发布演练蓝绿配置（split_clients 10% + X-HMS-Slot 标记，8443 TLS） |
+| `scripts/release_drill.ps1` | 任务 29 发布演练一键编排（五阶段五门禁，已实测全过） |
+| `docs/screenshots/degrade_step2_final.png` | 看板降级模式浏览器实证截图 |

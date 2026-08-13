@@ -1,0 +1,56 @@
+# HMS 告警规则 (M3 任务 28): 对齐计划任务 28 指标清单
+# (QPS/延迟/MQ lag/outbox 待投递/广播扇出/分区剩余天数)
+groups:
+  - name: hms_capacity
+    rules:
+      # 分区剩余天数 < 7: partman premake 断供风险 (写入将失败)
+      - alert: PartitionDaysLeftLow
+        expr: hms_partition_days_left < 7
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.table }} 分区仅剩 {{ $value }} 天"
+
+      # MQ 数据队列积压 > 10 万: 消费速率跟不上 (容量校准: 持续消费 ≈1.3k/s)
+      - alert: MqDataQueueBacklog
+        expr: hms_mq_queue_messages{queue="iot.data.queue"} > 100000
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "iot.data.queue 积压 {{ $value }} 条"
+
+      # DLQ 持续增长: 毒消息或契约漂移
+      - alert: DlqGrowing
+        expr: increase(hms_mq_queue_messages{queue="iot.dlq"}[10m]) > 10
+        for: 1m
+        labels: { severity: warning }
+        annotations:
+          summary: "iot.dlq 10 分钟内新增超 10 条"
+
+      # outbox 待投递堆积: 投递器故障或 MQ 不可达
+      - alert: OutboxPendingHigh
+        expr: hms_outbox_pending > 100
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "outbox 待投递 {{ $value }} 条"
+
+  - name: hms_slo
+    rules:
+      # REST P95 > 369ms (m1 基线×1.3, 与 m2_composite 门禁一致)
+      - alert: HttpP95High
+        expr: histogram_quantile(0.95, sum(rate(hms_http_request_duration_ms_bucket[5m])) by (le)) > 369
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "REST P95 延迟 {{ $value }}ms 超门禁 369ms"
+
+      # 5xx 比例 > 0.5%
+      - alert: Http5xxRate
+        expr: >
+          sum(rate(hms_http_requests_total{status=~"5.."}[5m]))
+          / sum(rate(hms_http_requests_total[5m])) > 0.005
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "HTTP 5xx 比例超 0.5%"
