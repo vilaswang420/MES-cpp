@@ -95,3 +95,9 @@
 | hiredis 订阅连接 `redisSetTimeout` 后永远读不到消息（err=6 忙旋） | 订阅连接改无超时阻塞读 |
 | docker exec 传 JSON 引号被吃 | payload/sh 脚本写文件 → docker cp → 容器内执行 |
 | WS 冒烟 ReceiveAsync 无法取消 | Task.WhenAny + Task.Delay 超时模式 |
+
+### m2-integ 集成域（计划任务 23）
+
+交付：`CircuitBreaker.hh`（CLOSED/OPEN/HALF_OPEN，连续 5 失败熔断，30s 冷却半开探测，成功重置计数）+ `IntegrationService`（drogon HttpClient 协程外呼 + retry_count 短退避重试 + integ_sync_logs 全量记录 + 失败日志人工重发）+ 完工回报 Saga（T1 本地完工 → T2 ERP 回报 → T3 WMS 入库，任一步失败逆序补偿）+ 7 接口 + Python 桩（故障注入）。迁移 009 播种权限与 integ_api_configs（dev 指向 9095 桩）。冒烟 20/20，单测 30/30，权限映射门禁 83 路由通过。
+
+修错纪要：`auto path = "/wms/..."` 推导 const char* 致 `"POST " + path` 指针加法 C2110（改显式 std::string）；Windows max 宏污染 `(std::max)`；`sleepCoro` 需 (loop, 秒) 两参；含 mutex 类不能进 map 初始化列表（unique_ptr 懒创建）；PS 5.1 异常响应 body 在 `$_.ErrorDetails.Message`；工单动作接口是 PUT。

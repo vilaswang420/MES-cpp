@@ -1,6 +1,6 @@
 # HMS 项目交接文档
 
-> 面向新会话 / 新接手者的完整交接。阅读本文后再开始工作。最近更新：2026-08-13（M1 出口全部门禁通过含 k6 第 7 轮；M2 已完成 MQ/设备/质量/WS+大屏，待办 IoT 入库、ERP/WMS 集成、M2 出口）。
+> 面向新会话 / 新接手者的完整交接。阅读本文后再开始工作。最近更新：2026-08-13（M1 出口全部门禁通过含 k6 第 7 轮；M2 已完成 MQ/设备/质量/WS+大屏/ERP-WMS 集成，待办 IoT 入库链路、M2 出口）。
 
 ## 一、项目概况
 
@@ -64,7 +64,7 @@ M1 期间根治的三类 drogon 陷阱（新增代码必须遵守，详见踩坑
 | 20 设备域 REST | ✅ 设备/传感器/告警/采集任务 18 接口，冒烟 35/35（`tests/e2e/m2_qc_iot_smoke.ps1`） |
 | 21 WS 链路+大屏 | ✅ `WsBroadcastManager`（Redis Pub/Sub 订阅 + 200ms 合并窗口 + 1Hz realtime 生产者），WS 冒烟 12/12（`tests/e2e/m2_ws_smoke.ps1`） |
 | 22 质量域 | ✅ 检验标准/检验记录/缺陷处置 7 接口，冒烟 35/35 |
-| 23 ERP/WMS 集成 | ⏳ 待办：迁移 006 表已就绪，缺 IntegrationService/CircuitBreaker/Saga 代码 |
+| 23 ERP/WMS 集成 | ✅ 熔断器（成功重置计数）+ IntegrationService（外呼/重试/日志/Saga 补偿）+ 7 接口 + 桩 `scripts/erp_wms_stub.py`，冒烟 20/20（`tests/e2e/m2_integ_smoke.ps1`） |
 | 18 IoT 模拟器链路 | ⏳ 待办：`scripts/iot_simulator.py` 1 万条 + 毒消息 DLQ 验证 |
 
 ## 三、环境与工具链（重要，坑多）
@@ -178,6 +178,9 @@ ctest --test-dir hms-backend/build -C Release
 25. **docker exec argv 吃引号**：PS → docker exec → redis-cli 传 JSON 时引号被剥掉；解法：payload 与 sh 脚本写本地文件 → `docker cp` 进容器 → `docker exec hms-redis sh /tmp/xxx.sh`（脚本内用 `$(cat ...)`）。
 26. **.NET ClientWebSocket 的 `ReceiveAsync` 不响应 CancellationToken**（取消后仍永久阻塞）：超时须用 `Task.WhenAny(recvTask, Task.Delay(...))` 实现。
 27. **k6 与后端重启窗口重叠会污染 setup 数据**：k6 脚本必须 fail-fast（setup 登录/建数失败 throw，VU 段校验数据完整性 abort）；高并发压测加短 ramp 避免 t=0 建连风暴抬高尾部延迟。
+28. **字符串字面量在前的 `+` 遇 `auto` 推导 `const char*` 即指针加法（C2110）**：`auto wmsPath = "/wms/stock-in"; "POST " + wmsPath` 编译报错；路径类局部变量一律显式 `std::string`。另：Windows `max` 宏污染下 `std::max` 要写 `(std::max)`；`drogon::sleepCoro` 签名是 `(EventLoop*, double秒)` 两参；含 mutex 的类不可拷贝/移动，不能放 map 初始化列表，用 `unique_ptr` 懒创建。
+29. **PS 5.1 `Invoke-RestMethod` 抛异常时响应流已被 cmdlet 消费**：`$resp.GetResponseStream()` 读出空串，错误 body 在 `$_.ErrorDetails.Message`；冒烟脚本判熔断/错误消息必须走 ErrorDetails。
+30. **工单状态流转动作接口（schedule/release/start/pause/complete/close）是 PUT 不是 POST**（perm_routes 与路由注册一致）；集成冒烟首次挂在这里返回 drogon 空 body 404。
 
 ## 八、关键文件索引
 
@@ -196,4 +199,7 @@ ctest --test-dir hms-backend/build -C Release
 | `perf/k6/m1_baseline.js` | M1 出口 k6 基线（500 VU 混合 10min，30s ramp + fail-fast） |
 | `tests/e2e/m2_qc_iot_smoke.ps1` | M2 设备域+质量域冒烟（35+35 项） |
 | `tests/e2e/m2_ws_smoke.ps1` | M2 WS 链路冒烟（12 项，含文件式 RedisPublish） |
+| `tests/e2e/m2_integ_smoke.ps1` | M2 ERP/WMS 集成冒烟（20 项：同步/幂等/转工单/Saga/补偿/熔断/重发） |
+| `scripts/erp_wms_stub.py` | ERP/WMS 本地桩（9095，故障注入 `/__control`） |
+| `hms-backend/src/utils/CircuitBreaker.hh` | 熔断器（header-only，单测 4 用例） |
 | `scripts/check_mq_topology.py` | MQ 拓扑声明与 broker 一致性门禁 |

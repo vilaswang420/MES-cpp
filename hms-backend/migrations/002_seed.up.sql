@@ -143,7 +143,15 @@ INSERT INTO sys_permissions (perm_code, perm_name, perm_type, path, method, stat
  ('qc:inspection:query', '检验详情',   3, '/api/v1/quality/inspections/{id}',               'GET',    1),
  ('qc:defect:list',      '缺陷列表',   3, '/api/v1/quality/defects',                        'GET',    1),
  ('qc:defect:handle',    '缺陷处理',   3, '/api/v1/quality/defects/{id}/disposition',       'PUT',    1),
- ('qc:stat:view',        '质量统计',   3, '/api/v1/quality/statistics',                     'GET',    1)
+ ('qc:stat:view',        '质量统计',   3, '/api/v1/quality/statistics',                     'GET',    1),
+ -- 集成域: ERP/WMS (4.10)
+ ('integ:erp:sync',      'ERP订单同步', 3, '/api/v1/integration/erp/sync-orders',           'POST',   1),
+ ('integ:erp:convert',   'ERP订单转工单',3, '/api/v1/integration/erp/{id}/convert',         'POST',   1),
+ ('integ:erp:report',    '工单回报ERP', 3, '/api/v1/integration/erp/report',                'POST',   1),
+ ('integ:wms:pick',      'WMS领料请求', 3, '/api/v1/integration/wms/pick-request',          'POST',   1),
+ ('integ:wms:inbound',   'WMS入库请求', 3, '/api/v1/integration/wms/stock-in',              'POST',   1),
+ ('integ:log:list',      '同步日志',   3, '/api/v1/integration/logs',                       'GET',    1),
+ ('integ:log:retry',     '重试同步',   3, '/api/v1/integration/logs/{id}/retry',            'POST',   1)
 ON CONFLICT DO NOTHING;
 
 -- ============ 授权矩阵 ============

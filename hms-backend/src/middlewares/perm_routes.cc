@@ -152,6 +152,15 @@ void init() {
     add("/api/v1/quality/defects", "GET", "qc:defect:list");
     add("/api/v1/quality/defects/{id}/disposition", "PUT", "qc:defect:handle");
     add("/api/v1/quality/statistics", "GET", "qc:stat:view");
+
+    // ---- ERP/WMS 集成 (4.10) ----
+    add("/api/v1/integration/erp/sync-orders", "POST", "integ:erp:sync");
+    add("/api/v1/integration/erp/{id}/convert", "POST", "integ:erp:convert");
+    add("/api/v1/integration/erp/report", "POST", "integ:erp:report");
+    add("/api/v1/integration/wms/pick-request", "POST", "integ:wms:pick");
+    add("/api/v1/integration/wms/stock-in", "POST", "integ:wms:inbound");
+    add("/api/v1/integration/logs", "GET", "integ:log:list");
+    add("/api/v1/integration/logs/{id}/retry", "POST", "integ:log:retry");
 }
 
 std::string getPermission(const std::string& path, const std::string& method) {
