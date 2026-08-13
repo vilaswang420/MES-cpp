@@ -53,6 +53,8 @@ def main() -> None:
     ap.add_argument("--devices", type=int, default=10, help="模拟设备数")
     ap.add_argument("--sensors-per-device", type=int, default=3)
     ap.add_argument("--interval-ms", type=int, default=0, help="每条消息间隔 (0=全速)")
+    ap.add_argument("--burst", action="store_true",
+                    help="突发模式: 关闭 publisher confirms/mandatory, 用于消费端容量探测")
     ap.add_argument("--poison", type=int, default=0,
                     help="额外投毒消息条数 (M2 DLQ 验证)")
     args = ap.parse_args()
@@ -62,7 +64,8 @@ def main() -> None:
     # exchange 由 deploy/mq/topology.json 预声明; passive 校验存在性
     ch.exchange_declare(EXCHANGE, exchange_type="topic",
                         durable=True, passive=True)
-    ch.confirm_delivery()
+    if not args.burst:
+        ch.confirm_delivery()
 
     sent = 0
     start = time.monotonic()
@@ -76,7 +79,7 @@ def main() -> None:
             body,
             pika.BasicProperties(
                 content_type="application/json", delivery_mode=2),
-            mandatory=True,
+            mandatory=not args.burst,
         )
         sent += 1
         if args.interval_ms > 0:

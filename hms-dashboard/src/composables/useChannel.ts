@@ -1,6 +1,8 @@
 // WebSocket 订阅 composable (计划任务 21 / contracts/ws-push.schema.json)。
 // 订阅协议: 连接建立后发送 {"action":"subscribe","channel":...};
 // 推送信封 {version,channel,ts,payload}; 断线自动重连 (指数退避上限 30s)。
+// 鉴权: 后端 /ws 以 query token 严格校验 (浏览器 WS 无法带 Authorization 头),
+// token 优先读 localStorage.hms_ws_token, 否则用大屏专用账号自动登录获取。
 import { onUnmounted, ref } from "vue";
 
 export interface WsPushMessage {
@@ -10,7 +12,32 @@ export interface WsPushMessage {
     payload: Record<string, unknown>;
 }
 
-const WS_URL = (import.meta.env.VITE_WS_URL as string) ?? "ws://127.0.0.1:8088/ws";
+// 同源接入: dev 经 vite proxy, 生产经 Nginx 反代 (后端未启 CORS, 不跨源直连)
+const WS_BASE = (import.meta.env.VITE_WS_URL as string) ??
+    `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
+const API_BASE = (import.meta.env.VITE_API_BASE as string) ?? "";
+
+let tokenPromise: Promise<string> | null = null;
+
+// 获取 WS 接入 token: localStorage 覆盖 > 自动登录 (失败返回空串, 连接将被后端拒绝并重连)
+function acquireToken(): Promise<string> {
+    const cached = localStorage.getItem("hms_ws_token");
+    if (cached) return Promise.resolve(cached);
+    if (!tokenPromise) {
+        tokenPromise = fetch(`${API_BASE}/api/v1/auth/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                username: (import.meta.env.VITE_DASH_USER as string) ?? "admin",
+                password: (import.meta.env.VITE_DASH_PWD as string) ?? "password",
+            }),
+        })
+            .then((r) => r.json())
+            .then((j) => (j.code === 200 ? String(j.data.access_token) : ""))
+            .catch(() => "");
+    }
+    return tokenPromise;
+}
 
 export function useChannel(channel: string, onMessage: (payload: Record<string, unknown>, ts: string) => void) {
     const connected = ref(false);
@@ -21,27 +48,30 @@ export function useChannel(channel: string, onMessage: (payload: Record<string, 
 
     function connect() {
         if (closed) return;
-        ws = new WebSocket(WS_URL);
-        ws.onopen = () => {
-            connected.value = true;
-            retry = 0;
-            ws?.send(JSON.stringify({ action: "subscribe", channel }));
-        };
-        ws.onmessage = (ev) => {
-            try {
-                const msg = JSON.parse(ev.data as string) as WsPushMessage;
-                if (msg.channel === channel) onMessage(msg.payload, msg.ts);
-            } catch {
-                // 非法消息丢弃 (契约校验在后端 WsBroadcastManager 侧兜底)
-            }
-        };
-        ws.onclose = () => {
-            connected.value = false;
+        void acquireToken().then((token) => {
             if (closed) return;
-            const delay = Math.min(30000, 1000 * 2 ** retry++);
-            timer = setTimeout(connect, delay);
-        };
-        ws.onerror = () => ws?.close();
+            ws = new WebSocket(`${WS_BASE}?token=${encodeURIComponent(token)}`);
+            ws.onopen = () => {
+                connected.value = true;
+                retry = 0;
+                ws?.send(JSON.stringify({ action: "subscribe", channel }));
+            };
+            ws.onmessage = (ev) => {
+                try {
+                    const msg = JSON.parse(ev.data as string) as WsPushMessage;
+                    if (msg.channel === channel) onMessage(msg.payload, msg.ts);
+                } catch {
+                    // 非法消息丢弃 (契约校验在后端 WsBroadcastManager 侧兜底)
+                }
+            };
+            ws.onclose = () => {
+                connected.value = false;
+                if (closed) return;
+                const delay = Math.min(30000, 1000 * 2 ** retry++);
+                timer = setTimeout(connect, delay);
+            };
+            ws.onerror = () => ws?.close();
+        });
     }
 
     connect();

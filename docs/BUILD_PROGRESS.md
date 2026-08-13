@@ -107,3 +107,16 @@
 验证：模拟器 1 万条 5s 内全量入库（多行 VALUES 批量 500/100ms）；Redis `device:latest:{id}` 更新 + device.status 广播；毒消息 x-retry-count 3 次有界重试（retry.queue TTL 10s）后进 iot.dlq（约 30s）。冒烟 6/6。
 
 关键事故：`iot.exchange→iot.retry.queue (retry.data)` 绑定丢失导致重试链路断裂（消息无绑定被静默丢弃，队列全空 DLQ 永不增）；新增 `scripts/apply_mq_topology.py` 幂等补建 + `check_mq_topology.py` 复验双保险；management API 建绑定用 POST（PUT 报 405）。
+
+### M2 出口验证（全部通过）
+
+| 出口标准 | 实测 |
+|---|---|
+| 大屏延迟 < 2s | `scripts/ws_load.py --mode latency` 100/100 样本：P50=186ms / P95=309ms / max=309ms |
+| 1000 WS 连接 | `ws_load.py --mode load` 1000/1000 连接成功并存活全程 |
+| 复合压测 REST P95 劣化 < 30% | `perf/k6/m2_composite.js` 与 1000 WS + 持续入库（均值 3.7k msg/s）10min 同跑：P95=277.67ms（基线 284ms，劣化 -2.2%）、failed=0.01%、api_err=0.01%、3099 rps |
+| 告警→WS→看板弹窗 | 浏览器实证：新建 ALERT-DEMO 设备+传感器（alarm_high=50）→ 发 99.5/105 越限消息 → iot_alerts 落库 → Redis PUBLISH → WS → 大屏 alert 面板实时弹窗（截图 docs/screenshots/dashboard_alert_demo.png） |
+
+容量校准（本机单机）：发布端 pika 峰值 12.7k msg/s（burst 无 confirm，正常 confirm 模式仅 ~104/s），计划 20k msg/s 不可达；**高负载+表 75 万行后持续消费速率实测 ≈1.3k msg/s**（空载探测 ≥5k/s），过载积压 144 万条 purge（模拟器数据）；prefetch 50→200（rabbitmq.json）。
+
+修错纪要：`ws_load.py` 初版按 `env.get("type")` 过滤永远不命中（信封契约无 type 字段，改按 channel）；hms-dashboard 直连后端登录被 CORS 拦截 → 改 vite proxy（/api + /ws）同源接入，useChannel 补自动登录取 token（后端 /ws 严格校验 query token）；传感器阈值快照缓存 60s，新建传感器后需等刷新才能触发告警。

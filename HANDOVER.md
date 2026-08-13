@@ -1,6 +1,6 @@
 # HMS 项目交接文档
 
-> 面向新会话 / 新接手者的完整交接。阅读本文后再开始工作。最近更新：2026-08-13（M1 出口全部门禁通过含 k6 第 7 轮；M2 功能域全部完成：MQ/设备/质量/WS+大屏/ERP-WMS 集成/IoT 入库链路，剩 M2 出口验证与 M3）。
+> 面向新会话 / 新接手者的完整交接。阅读本文后再开始工作。最近更新：2026-08-13（M1 出口全部门禁通过含 k6 第 7 轮；M2 全部完成含出口验证：复合压测三门禁通过、告警→WS→大屏弹窗浏览器实证，剩 M3）。
 
 ## 一、项目概况
 
@@ -67,6 +67,18 @@ M1 期间根治的三类 drogon 陷阱（新增代码必须遵守，详见踩坑
 | 23 ERP/WMS 集成 | ✅ 熔断器（成功重置计数）+ IntegrationService（外呼/重试/日志/Saga 补偿）+ 7 接口 + 桩 `scripts/erp_wms_stub.py`，冒烟 20/20（`tests/e2e/m2_integ_smoke.ps1`） |
 | 18 IoT 模拟器链路 | ✅ 模拟器 1 万条 5s 内全量入库（批量 500/100ms）+ Redis device:latest + 毒消息 3 次有界重试进 DLQ，冒烟 6/6（`tests/e2e/m2_iot_smoke.ps1`） |
 
+### M2 出口验证（2026-08-13，全部通过）
+
+| 出口标准 | 结论 |
+|---|---|
+| 1 万条全量入库 / 毒消息进 DLQ | ✅ 已含在 m2_iot_smoke 6/6 |
+| 大屏延迟 < 2s | ✅ `scripts/ws_load.py --mode latency`：100/100 样本，P50=186ms / P95=309ms / max=309ms |
+| 1000 WS 连接 | ✅ `ws_load.py --mode load`：1000/1000 连接成功并存活全程 |
+| 复合压测 REST P95 劣化 < 30% | ✅ `perf/k6/m2_composite.js` 与 1000 WS + 持续入库同跑 10min：**P95=277.67ms（较基线 284ms 劣化 -2.2%）**、failed=0.01%、api_err=0.01%、3099 rps |
+| 告警→WS→看板弹窗全链路 | ✅ 浏览器实证：传感器越限 → AlertHandler 落库 → Redis → WS → 大屏 alert 面板实时弹窗（截图 docs/screenshots/dashboard_alert_demo.png） |
+
+容量校准依据（本机单机，2026-08-13）：发布端 pika 峰值 12.7k msg/s（burst 无 confirm），计划 20k msg/s 目标本机不可达；复合期间按可持续均值 ~3.7k msg/s 灌入；**高负载下实测持续消费速率 ≈ 1.3k msg/s**（低于空载探测 ≥5k/s，表增长+复合负载所致），过载积压 144 万条后 purge（模拟器数据）。消费 lag 在发布≤消费容量时实测 < 2s（延迟验证）。
+
 ## 三、环境与工具链（重要，坑多）
 
 ### 3.1 本机工具位置
@@ -123,13 +135,14 @@ ctest --test-dir hms-backend/build -C Release
 - ✅ `hms-backend/build/Release/hms-backend.exe` 联调全通：启动命令
   `Start-Process .\build\Release\hms-backend.exe -WorkingDirectory hms-backend`（工作目录必须是 hms-backend，配置相对路径 config/*.json）。
 - ✅ Redis 权限缓存（`perm:user:{id}`）、JWT 黑名单、审计刷盘、outbox 投递器均实测验证。
-- ⚠️ hms-web / hms-dashboard 的 `node_modules` 与 `dist` 已被清理，需要时重新 `npm install && npm run build`（s4 已验证可构建）。
+- ⚠️ hms-web 的 `node_modules` 与 `dist` 已被清理，需要时重新 `npm install && npm run build`（s4 已验证可构建）；hms-dashboard 已重新 `npm install`（M2 出口验证时装）。
+- ⚠️ `iot_raw_data` 现有 ~75 万行压测数据（分区表，不影响功能）；`iot.dlq` 有 1 条毒消息为验证证据。
 
 ## 六、遗留事项
 
 1. **publisher confirms**：vcpkg 版 SimpleAmqpClient 无 confirm API，配置项已预留；当前由 `mq_outbox` 表重投保证最终一致，待库升级后启用。
 2. Redis Cluster 模式为 M3 阶段事项，dev 环境显式禁用了 cluster。
-3. **下一步 = M2**：MQ 拓扑声明验证（deploy/mq/topology.json）→ IoT 模拟器+采集入库 → 设备/传感器/告警 REST → WS 广播+大屏 → 质量域 7 接口 → ERP/WMS 集成（熔断+Saga）。
+3. **下一步 = M3**：高可用 compose（replicas/Redis Cluster/RMQ quorum/PgBouncer/无状态扩容，任务 24-27）→ 可观测性+发布演练（任务 28-29）。
 4. E2E 会在库里留下测试数据（E2E-/CR-/K6- 前缀），不影响断言，如需清理手工删除。
 
 ## 七、注意事项（踩坑清单，务必先读）
@@ -182,6 +195,10 @@ ctest --test-dir hms-backend/build -C Release
 29. **PS 5.1 `Invoke-RestMethod` 抛异常时响应流已被 cmdlet 消费**：`$resp.GetResponseStream()` 读出空串，错误 body 在 `$_.ErrorDetails.Message`；冒烟脚本判熔断/错误消息必须走 ErrorDetails。
 30. **工单状态流转动作接口（schedule/release/start/pause/complete/close）是 PUT 不是 POST**（perm_routes 与路由注册一致）；集成冒烟首次挂在这里返回 drogon 空 body 404。
 31. **MQ 绑定会丢：拓扑声明与运行态必须双核对**。曾出现 `iot.exchange→iot.retry.queue (retry.data)` 绑定丢失，毒消息重试链路断裂（无绑定消息被静默丢弃，队列全空但 DLQ 永远不增）；排查靠 `rabbitmqctl list_bindings`，恢复用 `scripts/apply_mq_topology.py`（幂等补建）+ `check_mq_topology.py` 复验。注意 management API 建绑定是 **POST** 不是 PUT（405）。
+32. **WS 推送信封无 type 字段**（contracts/ws-push.schema.json additionalProperties=false）：客户端过滤推送只能按 `channel` 判，`env.get("type")` 永远不命中。
+33. **后端未启 CORS，前端必须同源接入**：hms-dashboard 直连 127.0.0.1:8088 登录被 CORS 拦截；解法与 hms-web 一致——vite dev proxy（/api + /ws 含 ws:true）/生产 Nginx 反代，useChannel 默认用 `location.host` 同源地址。
+34. **传感器阈值快照缓存 60s**（DataIngestHandler::sensorSnapshot）：新建传感器后立即发越限消息不会触发告警，需等缓存刷新（最多 60s）再发。
+35. **高负载下持续消费速率远低于空载探测值**：空载 3 万条 6s 排空（≥5k/s），复合压测 + 表增长后实测 ≈1.3k/s；容量结论必须标注负载条件，压测编排按可持续速率而非峰值灌入，否则积压无界。
 
 ## 八、关键文件索引
 
@@ -206,3 +223,5 @@ ctest --test-dir hms-backend/build -C Release
 | `scripts/erp_wms_stub.py` | ERP/WMS 本地桩（9095，故障注入 `/__control`） |
 | `hms-backend/src/utils/CircuitBreaker.hh` | 熔断器（header-only，单测 4 用例） |
 | `scripts/check_mq_topology.py` | MQ 拓扑声明与 broker 一致性门禁 |
+| `scripts/ws_load.py` | M2 出口 WS 延迟/连接数验证（latency/load 双模式，自带门禁输出） |
+| `perf/k6/m2_composite.js` | M2 出口复合压测（REST 门禁 P95<369ms = 基线×1.3） |

@@ -6,7 +6,7 @@
     ],
     "data_queue": "iot.data.queue",
     "alert_queue": "iot.alert.queue",
-    "prefetch_count": 50,
+    "prefetch_count": 200,
     "publisher_confirms": true,
-    "comment": "M2: DataIngestHandler 的 prefetch 由 50 起步, 压测调至 200-500 (计划任务19)"
+    "comment": "M2: DataIngestHandler prefetch 已按计划任务 19 压测调至 200 (单机容量探测 2026-08-13)"
 }
