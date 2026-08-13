@@ -1,6 +1,6 @@
 # HMS 项目交接文档
 
-> 面向新会话 / 新接手者的完整交接。阅读本文后再开始工作。最近更新：2026-08-13（M1 出口全部门禁通过含 k6 第 7 轮；M2 已完成 MQ/设备/质量/WS+大屏/ERP-WMS 集成，待办 IoT 入库链路、M2 出口）。
+> 面向新会话 / 新接手者的完整交接。阅读本文后再开始工作。最近更新：2026-08-13（M1 出口全部门禁通过含 k6 第 7 轮；M2 功能域全部完成：MQ/设备/质量/WS+大屏/ERP-WMS 集成/IoT 入库链路，剩 M2 出口验证与 M3）。
 
 ## 一、项目概况
 
@@ -65,7 +65,7 @@ M1 期间根治的三类 drogon 陷阱（新增代码必须遵守，详见踩坑
 | 21 WS 链路+大屏 | ✅ `WsBroadcastManager`（Redis Pub/Sub 订阅 + 200ms 合并窗口 + 1Hz realtime 生产者），WS 冒烟 12/12（`tests/e2e/m2_ws_smoke.ps1`） |
 | 22 质量域 | ✅ 检验标准/检验记录/缺陷处置 7 接口，冒烟 35/35 |
 | 23 ERP/WMS 集成 | ✅ 熔断器（成功重置计数）+ IntegrationService（外呼/重试/日志/Saga 补偿）+ 7 接口 + 桩 `scripts/erp_wms_stub.py`，冒烟 20/20（`tests/e2e/m2_integ_smoke.ps1`） |
-| 18 IoT 模拟器链路 | ⏳ 待办：`scripts/iot_simulator.py` 1 万条 + 毒消息 DLQ 验证 |
+| 18 IoT 模拟器链路 | ✅ 模拟器 1 万条 5s 内全量入库（批量 500/100ms）+ Redis device:latest + 毒消息 3 次有界重试进 DLQ，冒烟 6/6（`tests/e2e/m2_iot_smoke.ps1`） |
 
 ## 三、环境与工具链（重要，坑多）
 
@@ -181,6 +181,7 @@ ctest --test-dir hms-backend/build -C Release
 28. **字符串字面量在前的 `+` 遇 `auto` 推导 `const char*` 即指针加法（C2110）**：`auto wmsPath = "/wms/stock-in"; "POST " + wmsPath` 编译报错；路径类局部变量一律显式 `std::string`。另：Windows `max` 宏污染下 `std::max` 要写 `(std::max)`；`drogon::sleepCoro` 签名是 `(EventLoop*, double秒)` 两参；含 mutex 的类不可拷贝/移动，不能放 map 初始化列表，用 `unique_ptr` 懒创建。
 29. **PS 5.1 `Invoke-RestMethod` 抛异常时响应流已被 cmdlet 消费**：`$resp.GetResponseStream()` 读出空串，错误 body 在 `$_.ErrorDetails.Message`；冒烟脚本判熔断/错误消息必须走 ErrorDetails。
 30. **工单状态流转动作接口（schedule/release/start/pause/complete/close）是 PUT 不是 POST**（perm_routes 与路由注册一致）；集成冒烟首次挂在这里返回 drogon 空 body 404。
+31. **MQ 绑定会丢：拓扑声明与运行态必须双核对**。曾出现 `iot.exchange→iot.retry.queue (retry.data)` 绑定丢失，毒消息重试链路断裂（无绑定消息被静默丢弃，队列全空但 DLQ 永远不增）；排查靠 `rabbitmqctl list_bindings`，恢复用 `scripts/apply_mq_topology.py`（幂等补建）+ `check_mq_topology.py` 复验。注意 management API 建绑定是 **POST** 不是 PUT（405）。
 
 ## 八、关键文件索引
 
@@ -200,6 +201,8 @@ ctest --test-dir hms-backend/build -C Release
 | `tests/e2e/m2_qc_iot_smoke.ps1` | M2 设备域+质量域冒烟（35+35 项） |
 | `tests/e2e/m2_ws_smoke.ps1` | M2 WS 链路冒烟（12 项，含文件式 RedisPublish） |
 | `tests/e2e/m2_integ_smoke.ps1` | M2 ERP/WMS 集成冒烟（20 项：同步/幂等/转工单/Saga/补偿/熔断/重发） |
+| `tests/e2e/m2_iot_smoke.ps1` | M2 IoT 入库链路冒烟（6 项：1 万条入库/Redis/毒消息 DLQ） |
+| `scripts/apply_mq_topology.py` | MQ 拓扑幂等补建（绑定丢失恢复） |
 | `scripts/erp_wms_stub.py` | ERP/WMS 本地桩（9095，故障注入 `/__control`） |
 | `hms-backend/src/utils/CircuitBreaker.hh` | 熔断器（header-only，单测 4 用例） |
 | `scripts/check_mq_topology.py` | MQ 拓扑声明与 broker 一致性门禁 |
