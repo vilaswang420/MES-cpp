@@ -4,6 +4,7 @@
 #include <ctime>
 
 #include "controllers/Common.hh"
+#include "common/SqlParam.hh"
 
 namespace hms {
 
@@ -76,7 +77,7 @@ class ProductionController : public drogon::HttpController<ProductionController>
             [callback, traceId](const drogon::orm::DrogonDbException& e) {
                 callback(ApiResponse::error(500, e.base().what(), traceId));
             },
-            lineId);
+            SqlArg(lineId));
     }
 
     void processes(const drogon::HttpRequestPtr& req,
@@ -177,7 +178,7 @@ class ProductionController : public drogon::HttpController<ProductionController>
         auto j = body;
         drogon::app().getDbClient()->execSqlAsync(
             "INSERT INTO prod_production_lines (line_code, line_name, workshop, location, "
-            "capacity_per_hour) VALUES ($1,$2,NULLIF($3,''),NULLIF($4,''),NULLIF($5,0)) "
+            "capacity_per_hour) VALUES ($1,$2,NULLIF($3,''),NULLIF($4,''),NULLIF($5::int,0)) "
             "RETURNING id",
             [callback, traceId](const drogon::orm::Result& r) {
                 callback(ApiResponse::success({{"id", r[0]["id"].as<int64_t>()}, {"created", true}},
@@ -187,7 +188,8 @@ class ProductionController : public drogon::HttpController<ProductionController>
                 callback(ApiResponse::error(500, e.base().what(), traceId));
             },
             j["line_code"].get<std::string>(), j["line_name"].get<std::string>(),
-            j.value("workshop", ""), j.value("location", ""), j.value("capacity_per_hour", 0));
+            j.value("workshop", ""), j.value("location", ""),
+            SqlArg(j.value("capacity_per_hour", 0)));
     }
 
     // 创建产品 (任务 13)
@@ -204,6 +206,8 @@ class ProductionController : public drogon::HttpController<ProductionController>
             "INSERT INTO prod_products (product_code, product_name, specification, unit, "
             "category) VALUES ($1,$2,NULLIF($3,''),COALESCE(NULLIF($4,''),'PCS'),NULLIF($5,'')) "
             "RETURNING id",
+            // 注: 数值绑定参数经 drogon 以二进制发送, 参与表达式 (NULLIF/COALESCE 等)
+            // 时 PG 会按字面量推断参数类型导致字节宽度不匹配, 必须显式 cast
             [callback, traceId](const drogon::orm::Result& r) {
                 callback(ApiResponse::success({{"id", r[0]["id"].as<int64_t>()}, {"created", true}},
                                               traceId));
@@ -235,29 +239,51 @@ class ProductionController : public drogon::HttpController<ProductionController>
         trans->execSqlAsync(
             "INSERT INTO prod_processes (process_code, process_name, product_id, version, "
             "total_steps, status, published_at, created_by) "
-            "VALUES ($1,$2,NULLIF($3,0),$4,$5,1,NOW(),$6) RETURNING id",
+            "VALUES ($1,$2,NULLIF($3::bigint,0),$4,$5::int,1,NOW(),$6::bigint) RETURNING id",
             [trans, steps, callback, traceId](const drogon::orm::Result& r) {
                 auto processId = r[0]["id"].as<int64_t>();
+                // 必须等全部步骤插入并 COMMIT 完成再响应: 否则调用方紧接着建单
+                // 会查不到步骤。步骤回调捕获 trans 延长事务生存期,
+                // 最后一个回调结束时引用归零 -> 析构排队 COMMIT -> commitCallback 响应
+                auto responded = std::make_shared<bool>(false);
+                auto stepCount = steps.size();
+                trans->setCommitCallback(
+                    [responded, processId, stepCount, callback, traceId](bool committed) {
+                        if (*responded)
+                            return;
+                        *responded = true;
+                        if (!committed) {
+                            callback(ApiResponse::error(500, "工艺路线事务提交失败", traceId));
+                            return;
+                        }
+                        callback(ApiResponse::success(
+                            {{"id", processId}, {"steps", stepCount}, {"created", true}},
+                            traceId));
+                    });
                 for (const auto& s : steps)
                     trans->execSqlAsync(
                         "INSERT INTO prod_process_steps (process_id, step_seq, step_name, "
                         "step_code, workstation_type, std_cycle_time, quality_check, is_key_step) "
-                        "VALUES ($1,$2,$3,$4,NULLIF($5,''),NULLIF($6,0),$7,$8)",
-                        [](const drogon::orm::Result&) {},
-                        [](const drogon::orm::DrogonDbException&) {}, processId,
-                        s["step_seq"].get<int>(), s["step_name"].get<std::string>(),
-                        s["step_code"].get<std::string>(), s.value("workstation_type", ""),
-                        s.value("std_cycle_time", 0), s.value("quality_check", false),
-                        s.value("is_key_step", false));
-                callback(ApiResponse::success(
-                    {{"id", processId}, {"steps", steps.size()}, {"created", true}}, traceId));
+                        "VALUES ($1,$2::int,$3,$4,NULLIF($5,''),NULLIF($6::int,0),$7::boolean,$8::boolean)",
+                        [trans, responded](const drogon::orm::Result&) {},
+                        [trans, responded, callback, traceId](const drogon::orm::DrogonDbException& e) {
+                            if (*responded)
+                                return;
+                            *responded = true;
+                            callback(ApiResponse::error(500, e.base().what(), traceId));
+                        },
+                        SqlArg(processId), SqlArg(s["step_seq"].get<int>()),
+                        s["step_name"].get<std::string>(), s["step_code"].get<std::string>(),
+                        s.value("workstation_type", ""), SqlArg(s.value("std_cycle_time", 0)),
+                        SqlArg(s.value("quality_check", false)),
+                        SqlArg(s.value("is_key_step", false)));
             },
             [callback, traceId](const drogon::orm::DrogonDbException& e) {
                 callback(ApiResponse::error(500, e.base().what(), traceId));
             },
             j["process_code"].get<std::string>(), j["process_name"].get<std::string>(),
-            j.value("product_id", (int64_t)0), j.value("version", "1.0"), (int)steps.size(),
-            createdBy);
+            SqlArg(j.value("product_id", (int64_t)0)), j.value("version", "1.0"),
+            SqlArg((int)steps.size()), SqlArg(createdBy));
     }
 
     // 创建计划并维护 prod_plan_work_orders 关联 (计划任务 16)
@@ -282,24 +308,40 @@ class ProductionController : public drogon::HttpController<ProductionController>
         trans->execSqlAsync(
             "INSERT INTO prod_production_plans (plan_no, plan_date, line_id, shift, plan_qty, "
             "status, created_by) VALUES ($1,$2,$3,$4,$5,0,$6) RETURNING id",
-            [trans, j, callback, traceId](const drogon::orm::Result& r) {
+            [trans, j, callback, traceId](const drogon::orm::Result& r) mutable {
                 auto planId = r[0]["id"].as<int64_t>();
-                if (j.contains("work_order_ids") && j["work_order_ids"].is_array()) {
+                // 关联 INSERT 回调捕获 trans: 最后一个回调结束 -> 析构排队 COMMIT ->
+                // commitCallback 响应 (无关联时外层回调末尾释放)
+                auto responded = std::make_shared<bool>(false);
+                trans->setCommitCallback([responded, planId, callback, traceId](bool committed) {
+                    if (*responded)
+                        return;
+                    *responded = true;
+                    if (!committed) {
+                        callback(ApiResponse::error(500, "计划事务提交失败", traceId));
+                        return;
+                    }
+                    callback(ApiResponse::success({{"id", planId}, {"created", true}}, traceId));
+                });
+                if (j.contains("work_order_ids") && j["work_order_ids"].is_array() &&
+                    !j["work_order_ids"].empty()) {
                     for (const auto& wo : j["work_order_ids"])
                         trans->execSqlAsync(
                             "INSERT INTO prod_plan_work_orders (plan_id, work_order_id) "
                             "VALUES ($1,$2) ON CONFLICT DO NOTHING",
-                            [](const drogon::orm::Result&) {},
-                            [](const drogon::orm::DrogonDbException&) {}, planId,
-                            wo.get<int64_t>());
+                            [trans, responded](const drogon::orm::Result&) {},
+                            [trans, responded](const drogon::orm::DrogonDbException&) {},
+                            SqlArg(planId), SqlArg(wo.get<int64_t>()));
+                } else {
+                    trans.reset(); // 无关联语句, 立即释放触发 COMMIT
                 }
-                callback(ApiResponse::success({{"id", planId}, {"created", true}}, traceId));
             },
             [callback, traceId](const drogon::orm::DrogonDbException& e) {
                 callback(ApiResponse::error(500, e.base().what(), traceId));
             },
-            std::string(planNo), j["plan_date"].get<std::string>(), j["line_id"].get<int64_t>(),
-            j["shift"].get<int>(), j["plan_qty"].get<int>(), createdBy);
+            std::string(planNo), j["plan_date"].get<std::string>(),
+            SqlArg(j["line_id"].get<int64_t>()), SqlArg(j["shift"].get<int>()),
+            SqlArg(j["plan_qty"].get<int>()), SqlArg(createdBy));
     }
 };
 

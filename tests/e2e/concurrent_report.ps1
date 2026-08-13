@@ -1,4 +1,4 @@
-# 报工并发超报测试 (M1 钱袋子逻辑):
+﻿# 报工并发超报测试 (M1 钱袋子逻辑):
 #   同一工单最后一件, N 个并发报工会话同时提交 good_qty=1,
 #   必须恰好 1 个成功 (行级锁 FOR UPDATE 串行化), 其余全部 409 拒绝;
 #   最终 completed_qty 恰好等于 plan_qty, 恰好触发 1 条停采 outbox。
@@ -50,30 +50,34 @@ for ($i = 0; $i -lt $concurrency; $i++) {
             $headers = @{ "Content-Type" = "application/json"; "Authorization" = "Bearer $Token" }
             $resp = Invoke-RestMethod -Uri "$Base/api/v1/production/work-orders/$WoId/report" `
                 -Method POST -Headers $headers -Body (@{ step_seq = 1; good_qty = 1 } | ConvertTo-Json)
-            return [pscustomobject]@{ Ok = ($resp.code -eq 200); Code = $resp.code; Msg = $resp.message }
+            # 返回纯字符串 (Job 反序列化 PSCustomObject 存在丢结果的环境差异)
+            return "OK:$($resp.code)"
         } catch {
-            $code = 0; $msg = $_.Exception.Message
+            # PS 5.1 Job 环境下部分异常读不到响应体: 优先从异常消息正则提取状态码,
+            # 响应体读取作兑底
+            $code = 0
+            if ($_.Exception.Message -match '\((\d{3})\)') { $code = [int]$Matches[1] }
             try {
                 $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
                 $parsed = $reader.ReadToEnd() | ConvertFrom-Json
-                $code = $parsed.code; $msg = $parsed.message
+                if ($parsed.code) { $code = $parsed.code }
             } catch {}
-            return [pscustomobject]@{ Ok = $false; Code = $code; Msg = $msg }
+            return "FAIL:$code"
         }
     } -ArgumentList $base, $wo.id, $token
 }
 $results = $jobs | Wait-Job | Receive-Job
 $jobs | Remove-Job
 
-$succeeded = ($results | Where-Object { $_.Ok }).Count
-$rejected = $results | Where-Object { -not $_.Ok }
-Write-Host "  成功 $succeeded / 拒绝 $($rejected.Count)"
-foreach ($r in $rejected) { Write-Host "    [拒绝] code=$($r.Code) $($r.Msg)" }
+$okCodes = @($results | Where-Object { $_ -like 'OK*' })
+$failCodes = @($results | ForEach-Object { if ($_ -like 'FAIL:*') { [int]($_ -replace 'FAIL:', '') } })
+Write-Host "  成功 $($okCodes.Count) / 拒绝 $($failCodes.Count) (共 $($results.Count) 路)"
+foreach ($c in $failCodes) { Write-Host "    [拒绝] code=$c" }
 
 # ---- 3. 断言: 恰好 1 成功; 其余必须是 409 (超报/状态冲突), 不允许 5xx ----
-if ($succeeded -ne 1) { throw "并发超报防护失效: 成功数应为 1, 实际 $succeeded" }
-foreach ($r in $rejected) {
-    if ($r.Code -ne 409) { throw "并发拒绝应为 409 冲突, 实际 $($r.Code) ($($r.Msg))" }
+if ($okCodes.Count -ne 1) { throw "并发超报防护失效: 成功数应为 1, 实际 $($okCodes.Count)" }
+foreach ($c in $failCodes) {
+    if ($c -ne 409) { throw "并发拒绝应为 409 冲突, 实际 $c" }
 }
 
 # ---- 4. 断言: completed_qty 恰好等于 plan_qty, 且已自动完工 ----

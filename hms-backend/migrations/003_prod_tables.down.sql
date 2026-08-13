@@ -3,6 +3,7 @@ DROP TABLE IF EXISTS prod_plan_work_orders;
 DROP TABLE IF EXISTS prod_production_plans;
 DROP TABLE IF EXISTS prod_work_order_operations;
 DROP TABLE IF EXISTS prod_work_orders;
+DROP SEQUENCE IF EXISTS prod_work_order_no_seq;
 ALTER TABLE prod_products DROP CONSTRAINT IF EXISTS fk_product_process;
 DROP TABLE IF EXISTS prod_process_steps;
 DROP TABLE IF EXISTS prod_processes;

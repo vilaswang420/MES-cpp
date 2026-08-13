@@ -9,9 +9,9 @@ VALUES ('ROOT', '总公司', 0), ('IT', '信息部', 1)
 ON CONFLICT (dept_code) DO NOTHING;
 
 -- ============ 超级管理员 ============
--- 密码: password (bcrypt 测试向量, 仅开发环境! 部署前必须重置)
+-- 密码: password (由本仓 vendored bcrypt 库生成并往返验证, 仅开发环境! 部署前必须重置)
 INSERT INTO sys_users (dept_id, username, password_hash, real_name, employee_no, status)
-SELECT d.id, 'admin', '$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy',
+SELECT d.id, 'admin', '$2a$10$Vq7ZaCglT1G6pU4uG9zUJ.LRt4xCFfHpI1O6xY3FQ/6IxnQHi/JN6',
        '系统管理员', 'E0001', 1
   FROM sys_departments d WHERE d.dept_code = 'IT'
 ON CONFLICT (username) DO NOTHING;
@@ -36,7 +36,9 @@ ON CONFLICT DO NOTHING;
 -- 一级菜单
 INSERT INTO sys_permissions (perm_code, perm_name, perm_type, path, icon, sort_order) VALUES
  ('menu:system',     '系统管理', 1, '/system',     'SettingOutlined',    90),
- ('menu:production', '生产管理', 1, '/production', 'ScheduleOutlined',   10)
+ ('menu:production', '生产管理', 1, '/production', 'ScheduleOutlined',   10),
+ ('menu:iot',        '设备物联', 1, '/iot',        'CloudServerOutlined',20),
+ ('menu:quality',    '质量管理', 1, '/quality',    'ExperimentOutlined', 30)
 ON CONFLICT DO NOTHING;
 
 -- 二级菜单
@@ -52,7 +54,13 @@ SELECT p.id, v.code, v.name, 1, v.path, v.icon, v.ord
         ('menu:system', 'menu:system:config', '系统配置', '/system/configs',  'ToolOutlined',      6),
         ('menu:production', 'menu:prod:wo',    '工单管理', '/production/work-orders', 'ProfileOutlined', 1),
         ('menu:production', 'menu:prod:plan',  '生产计划', '/production/plans',       'CalendarOutlined',2),
-        ('menu:production', 'menu:prod:based', '主数据',   '/production/basedata',    'DatabaseOutlined',3)
+        ('menu:production', 'menu:prod:based', '主数据',   '/production/basedata',    'DatabaseOutlined',3),
+        ('menu:iot', 'menu:iot:device', '设备管理', '/iot/devices', 'HddOutlined',    1),
+        ('menu:iot', 'menu:iot:alert',  '告警中心', '/iot/alerts',  'AlertOutlined',  2),
+        ('menu:iot', 'menu:iot:task',   '采集任务', '/iot/tasks',   'FieldTimeOutlined',3),
+        ('menu:quality', 'menu:qc:inspection', '检验管理', '/quality/inspections', 'AuditOutlined',   1),
+        ('menu:quality', 'menu:qc:defect',     '缺陷管理', '/quality/defects',     'BugOutlined',     2),
+        ('menu:quality', 'menu:qc:stat',       '质量统计', '/quality/statistics',  'BarChartOutlined',3)
        ) AS v(parent, code, name, path, icon, ord)
  WHERE p.perm_code = v.parent
 ON CONFLICT DO NOTHING;
@@ -108,7 +116,34 @@ INSERT INTO sys_permissions (perm_code, perm_name, perm_type, path, method, stat
  ('prod:product:list',   '产品列表',   3, '/api/v1/production/products',                    'GET',  1),
  ('prod:product:add',    '创建产品',   3, '/api/v1/production/products',                    'POST', 1),
  ('prod:plan:list',      '计划列表',   3, '/api/v1/production/plans',                       'GET',  1),
- ('prod:plan:add',       '创建计划',   3, '/api/v1/production/plans',                       'POST', 1)
+ ('prod:plan:add',       '创建计划',   3, '/api/v1/production/plans',                       'POST', 1),
+ -- IoT 域: 设备/传感器/数据/告警/任务 (4.7)
+ ('iot:device:list',     '设备列表',   3, '/api/v1/iot/devices',                            'GET',    1),
+ ('iot:device:query',    '设备详情',   3, '/api/v1/iot/devices/{id}',                       'GET',    1),
+ ('iot:device:query',    '设备状态',   3, '/api/v1/iot/devices/{id}/status',                'GET',    1),
+ ('iot:device:add',      '新增设备',   3, '/api/v1/iot/devices',                            'POST',   1),
+ ('iot:device:update',   '修改设备',   3, '/api/v1/iot/devices/{id}',                       'PUT',    1),
+ ('iot:device:delete',   '删除设备',   3, '/api/v1/iot/devices/{id}',                       'DELETE', 1),
+ ('iot:device:command',  '下发指令',   3, '/api/v1/iot/devices/{id}/command',               'POST',   1),
+ ('iot:sensor:list',     '传感器列表', 3, '/api/v1/iot/devices/{id}/sensors',               'GET',    1),
+ ('iot:sensor:add',      '新增传感器', 3, '/api/v1/iot/devices/{id}/sensors',               'POST',   1),
+ ('iot:data:query',      '实时数据',   3, '/api/v1/iot/devices/{id}/realtime-data',         'GET',    1),
+ ('iot:data:query',      '历史数据',   3, '/api/v1/iot/sensors/{id}/history',               'GET',    1),
+ ('iot:alert:list',      '告警列表',   3, '/api/v1/iot/alerts',                             'GET',    1),
+ ('iot:alert:handle',    '确认告警',   3, '/api/v1/iot/alerts/{id}/acknowledge',            'PUT',    1),
+ ('iot:task:list',       '采集任务列表',3,'/api/v1/iot/tasks',                              'GET',    1),
+ ('iot:task:add',        '新增采集任务',3,'/api/v1/iot/tasks',                              'POST',   1),
+ ('iot:task:update',     '修改采集任务',3,'/api/v1/iot/tasks/{id}',                         'PUT',    1),
+ ('iot:task:update',     '启停采集任务',3,'/api/v1/iot/tasks/{id}/toggle',                  'PUT',    1),
+ ('iot:task:delete',     '删除采集任务',3,'/api/v1/iot/tasks/{id}',                         'DELETE', 1),
+ -- 质量域: 检验/缺陷/统计 (4.8)
+ ('qc:standard:list',    '检验标准列表',3,'/api/v1/quality/standards',                      'GET',    1),
+ ('qc:inspection:add',   '创建检验记录',3,'/api/v1/quality/inspections',                    'POST',   1),
+ ('qc:inspection:list',  '检验记录列表',3,'/api/v1/quality/inspections',                    'GET',    1),
+ ('qc:inspection:query', '检验详情',   3, '/api/v1/quality/inspections/{id}',               'GET',    1),
+ ('qc:defect:list',      '缺陷列表',   3, '/api/v1/quality/defects',                        'GET',    1),
+ ('qc:defect:handle',    '缺陷处理',   3, '/api/v1/quality/defects/{id}/disposition',       'PUT',    1),
+ ('qc:stat:view',        '质量统计',   3, '/api/v1/quality/statistics',                     'GET',    1)
 ON CONFLICT DO NOTHING;
 
 -- ============ 授权矩阵 ============
@@ -138,11 +173,31 @@ SELECT r.id, p.id FROM sys_roles r, sys_permissions p
        'prod:wo:list','prod:wo:query','prod:wo:report','prod:station:list')
 ON CONFLICT DO NOTHING;
 
--- qc_engineer / dev_engineer: 工单只读 (质检/设备域权限 M2 补充)
+-- qc_engineer / dev_engineer: 工单只读 (质检域权限 M2 补充)
 INSERT INTO sys_role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM sys_roles r, sys_permissions p
  WHERE r.role_code IN ('qc_engineer','dev_engineer')
    AND p.perm_code IN ('menu:production','menu:prod:wo','prod:wo:list','prod:wo:query')
+ON CONFLICT DO NOTHING;
+
+-- dev_engineer: IoT 域全部 (设备管理/告警处理, 5.5 节角色矩阵)
+INSERT INTO sys_role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM sys_roles r, sys_permissions p
+ WHERE r.role_code = 'dev_engineer'
+   AND p.perm_code IN ('menu:iot','menu:iot:device','menu:iot:alert','menu:iot:task',
+       'iot:device:list','iot:device:query','iot:device:add','iot:device:update',
+       'iot:device:delete','iot:device:command','iot:sensor:list','iot:sensor:add',
+       'iot:data:query','iot:alert:list','iot:alert:handle',
+       'iot:task:list','iot:task:add','iot:task:update','iot:task:delete')
+ON CONFLICT DO NOTHING;
+
+-- qc_engineer: 质量域全部 (检验录入、缺陷管理, 5.5 节角色矩阵)
+INSERT INTO sys_role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM sys_roles r, sys_permissions p
+ WHERE r.role_code = 'qc_engineer'
+   AND p.perm_code IN ('menu:quality','menu:qc:inspection','menu:qc:defect','menu:qc:stat',
+       'qc:standard:list','qc:inspection:add','qc:inspection:list','qc:inspection:query',
+       'qc:defect:list','qc:defect:handle','qc:stat:view')
 ON CONFLICT DO NOTHING;
 
 -- dashboard: 只读

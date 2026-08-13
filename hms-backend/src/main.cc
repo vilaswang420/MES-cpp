@@ -6,10 +6,13 @@
 #include "common/ApiResponse.hh"
 #include "middlewares/CrossCutting.hh"
 #include "middlewares/perm_routes.hh"
+#include "mq/AlertHandler.hh"
+#include "mq/DataIngestHandler.hh"
 #include "mq/MqProducer.hh"
 #include "mq/OutboxDispatcher.hh"
 #include "mq/StopCollectionHandler.hh"
 #include "utils/JwtUtils.hh"
+#include "websocket/WsBroadcastManager.hh"
 
 // hms-backend 入口 (计划任务 7/10/15):
 // 横切设施装配 = AOP advice 链 (Trace -> Jwt -> Rbac -> Audit) + 统一错误拦截
@@ -67,14 +70,20 @@ int main(int argc, char** argv) {
         }
         hms::MqProducer::init(mqCfg);
         hms::OutboxDispatcher::start();           // outbox 扫描投递 (advisory lock 互斥)
+        hms::DataIngestHandler::start(mqCfg);     // IoT 数据入库 (任务 19)
+        hms::AlertHandler::start(mqCfg);          // 告警落库+广播 (任务 19)
         hms::StopCollectionHandler::start(mqCfg); // 停采消费日志占位
+        hms::WsBroadcastManager::start();         // WS 广播: Redis 订阅+合并推送 (任务 21)
         hms::startAuditFlusher();                 // 审计批量刷盘
         LOG_INFO << "hms-backend started";
     });
 
     drogon::app().run();
 
+    hms::DataIngestHandler::stop();
+    hms::AlertHandler::stop();
     hms::StopCollectionHandler::stop();
+    hms::WsBroadcastManager::stop();
     hms::MqProducer::shutdown();
     return 0;
 }

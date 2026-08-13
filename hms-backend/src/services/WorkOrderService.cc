@@ -9,6 +9,7 @@
 #include <sstream>
 
 #include "common/ApiResponse.hh"
+#include "common/SqlParam.hh"
 #include "models/WorkOrderStateMachine.hh"
 #include "mq/OutboxDispatcher.hh"
 #include "utils/TimeUtils.hh"
@@ -22,7 +23,8 @@ namespace {
 
 // ---- 工具 ----
 
-std::string genWorkOrderNo() {
+// 工单号 = WO + UTC日期 + 全局序列 (历史版本用随机三位数, 同日工单多时碰撞致 500)
+std::string genWorkOrderNo(int64_t seq) {
     auto now = std::chrono::system_clock::now();
     std::time_t t = std::chrono::system_clock::to_time_t(now);
     std::tm tm{};
@@ -31,10 +33,9 @@ std::string genWorkOrderNo() {
 #else
     gmtime_r(&t, &tm);
 #endif
-    static thread_local std::mt19937 rng{std::random_device{}()};
     char buf[32];
-    std::snprintf(buf, sizeof(buf), "WO%04d%02d%02d%03d", tm.tm_year + 1900, tm.tm_mon + 1,
-                  tm.tm_mday, rng() % 1000);
+    std::snprintf(buf, sizeof(buf), "WO%04d%02d%02d%05lld", tm.tm_year + 1900, tm.tm_mon + 1,
+                  tm.tm_mday, static_cast<long long>(seq));
     return buf;
 }
 
@@ -187,7 +188,7 @@ drogon::Task<nlohmann::json> detail(int64_t id, const UserCtx& ctx) {
     auto db = drogon::app().getDbClient();
     auto scope = buildScopeSql(ctx);
     auto r = co_await db->execSqlCoro(
-        std::string(kWoSelect) + "WHERE wo.id = $1 AND " + scope.condition, id);
+        std::string(kWoSelect) + "WHERE wo.id = $1 AND " + scope.condition, SqlArg(id));
     if (r.empty())
         throw NotFound("工单不存在或无权访问");
     auto data = woToJson(r[0]);
@@ -196,7 +197,7 @@ drogon::Task<nlohmann::json> detail(int64_t id, const UserCtx& ctx) {
         "SELECT id, step_seq, step_name, plan_qty, completed_qty, good_qty, defect_qty, "
         "operator_id, status, workstation_id FROM prod_work_order_operations "
         "WHERE work_order_id = $1 ORDER BY step_seq",
-        id);
+        SqlArg(id));
     nlohmann::json opArr = nlohmann::json::array();
     for (const auto& op : ops) {
         opArr.push_back({
@@ -231,7 +232,7 @@ drogon::Task<nlohmann::json> create(const nlohmann::json& body, const UserCtx& c
     int64_t processId = body.value("process_id", (int64_t)0);
     if (processId == 0) {
         auto pr = co_await trans->execSqlCoro(
-            "SELECT process_id FROM prod_products WHERE id = $1 AND deleted = FALSE", productId);
+            "SELECT process_id FROM prod_products WHERE id = $1 AND deleted = FALSE", SqlArg(productId));
         if (pr.empty())
             throw NotFound("产品不存在");
         if (pr[0]["process_id"].isNull())
@@ -242,17 +243,19 @@ drogon::Task<nlohmann::json> create(const nlohmann::json& body, const UserCtx& c
     auto steps =
         co_await trans->execSqlCoro("SELECT id, step_seq, step_name FROM prod_process_steps "
                                    "WHERE process_id = $1 ORDER BY step_seq",
-                                   processId);
+                                   SqlArg(processId));
     if (steps.empty())
         throw BadRequest("工艺路线无工序步骤, 无法创建工单");
 
-    auto woNo = genWorkOrderNo();
+    auto seqRow = co_await trans->execSqlCoro("SELECT nextval('prod_work_order_no_seq')");
+    auto woNo = genWorkOrderNo(seqRow[0][0].as<int64_t>());
     auto ins = co_await trans->execSqlCoro(
         "INSERT INTO prod_work_orders (work_order_no, product_id, process_id, line_id, "
         "plan_qty, priority, status, source, remark, created_by) "
-        "VALUES ($1,$2,$3,NULLIF($4,0),$5,$6,0,2,$7,$8) RETURNING id",
-        woNo, productId, processId, body.value("line_id", (int64_t)0), planQty,
-        body.value("priority", 5), body.value("remark", ""), ctx.userId);
+        "VALUES ($1,$2,$3,NULLIF($4::bigint,0),$5::int,$6::int,0,2,$7,$8) RETURNING id",
+        woNo, SqlArg(productId), SqlArg(processId), SqlArg(body.value("line_id", (int64_t)0)),
+        SqlArg(planQty), SqlArg(body.value("priority", 5)), body.value("remark", ""),
+        SqlArg(ctx.userId));
     auto woId = ins[0]["id"].as<int64_t>();
 
     // 按工艺步骤生成工序行 (每道工序计划量 = 工单计划量)
@@ -261,10 +264,12 @@ drogon::Task<nlohmann::json> create(const nlohmann::json& body, const UserCtx& c
             "INSERT INTO prod_work_order_operations "
             "(work_order_id, process_step_id, step_seq, step_name, plan_qty, status) "
             "VALUES ($1,$2,$3,$4,$5,0)",
-            woId, s["id"].as<int64_t>(), s["step_seq"].as<int>(), s["step_name"].as<std::string>(),
-            planQty);
+            SqlArg(woId), SqlArg(s["id"].as<int64_t>()), SqlArg(s["step_seq"].as<int>()),
+            s["step_name"].as<std::string>(), SqlArg(planQty));
     }
-    // trans 析构自动提交
+    // 等待 COMMIT 落库后再响应, 避免调用方写后读不一致
+    if (!co_await commitAwait(std::move(trans)))
+        throw Internal("工单事务提交失败");
     co_return nlohmann::json{{"id", woId}, {"work_order_no", woNo}, {"status", 0}};
 }
 
@@ -273,7 +278,7 @@ drogon::Task<nlohmann::json> update(int64_t id, const nlohmann::json& body, cons
     auto db = drogon::app().getDbClient();
     auto trans = co_await db->newTransactionCoro();
     auto r = co_await trans->execSqlCoro(
-        "SELECT status FROM prod_work_orders WHERE id = $1 FOR UPDATE", id);
+        "SELECT status FROM prod_work_orders WHERE id = $1 FOR UPDATE", SqlArg(id));
     if (r.empty())
         throw NotFound("工单不存在");
     auto status = r[0]["status"].as<int>();
@@ -296,12 +301,14 @@ drogon::Task<nlohmann::json> update(int64_t id, const nlohmann::json& body, cons
         setSql += sets[i];
     }
     co_await trans->execSqlCoro(
-        "UPDATE prod_work_orders SET " + setSql + ", updated_at = NOW() WHERE id = $1", id);
+        "UPDATE prod_work_orders SET " + setSql + ", updated_at = NOW() WHERE id = $1", SqlArg(id));
     // 计划量变化同步未开工的工序行
     if (body.contains("plan_qty"))
         co_await trans->execSqlCoro("UPDATE prod_work_order_operations SET plan_qty = $1 "
                                    "WHERE work_order_id = $2 AND status = 0",
-                                   body["plan_qty"].get<int>(), id);
+                                   SqlArg(body["plan_qty"].get<int>()), SqlArg(id));
+    if (!co_await commitAwait(std::move(trans)))
+        throw Internal("工单事务提交失败");
     co_return nlohmann::json{{"id", id}, {"updated", true}};
 }
 
@@ -313,7 +320,7 @@ drogon::Task<nlohmann::json> transit(int64_t id, const std::string& action, cons
 
     auto r = co_await trans->execSqlCoro(
         "SELECT status, completed_qty, plan_qty FROM prod_work_orders WHERE id = $1 FOR UPDATE",
-        id);
+        SqlArg(id));
     if (r.empty())
         throw NotFound("工单不存在");
     auto from = r[0]["status"].as<int>();
@@ -329,7 +336,9 @@ drogon::Task<nlohmann::json> transit(int64_t id, const std::string& action, cons
         extra = ", actual_end_at = COALESCE(actual_end_at, NOW())";
     co_await trans->execSqlCoro("UPDATE prod_work_orders SET status = $1" + extra +
                                    ", updated_at = NOW() WHERE id = $2",
-                               to, id);
+                               SqlArg(to), SqlArg(id));
+    if (!co_await commitAwait(std::move(trans)))
+        throw Internal("工单事务提交失败");
     co_return nlohmann::json{
         {"id", id}, {"status", to}, {"status_name", WorkOrderStateMachine::statusName(to)}};
 }
@@ -347,63 +356,70 @@ drogon::Task<nlohmann::json> report(int64_t id, const nlohmann::json& body, cons
     auto db = drogon::app().getDbClient();
     auto trans = co_await db->newTransactionCoro();
 
-    // 1. 工单行级锁 (并发报工串行化, 防超报)
-    auto wo = co_await trans->execSqlCoro(
-        "SELECT status, plan_qty, completed_qty, work_order_no, product_id "
-        "FROM prod_work_orders WHERE id = $1 FOR UPDATE",
-        id);
-    if (wo.empty())
-        throw NotFound("工单不存在");
-    if (wo[0]["status"].as<int>() != WorkOrderStateMachine::kInProgress)
-        throw Conflict("仅进行中的工单可报工");
-
-    // 2. 工序行级更新
-    auto op = co_await trans->execSqlCoro(
-        "SELECT id, plan_qty, completed_qty, status FROM prod_work_order_operations "
-        "WHERE work_order_id = $1 AND step_seq = $2 FOR UPDATE",
-        id, stepSeq);
-    if (op.empty())
-        throw NotFound("工序不存在");
-    auto opCompleted = op[0]["completed_qty"].as<int>();
-    if (opCompleted + delta > op[0]["plan_qty"].as<int>())
-        throw Conflict("工序超报: 已完成 " + std::to_string(opCompleted) + "/" +
+    // 单 SQL 合并更新 (性能优化: 1 次往返替代 SELECT FOR UPDATE x2 + UPDATE x2,
+    // 行锁持有期压缩到仅剩本语句 + COMMIT 等待):
+    //  - CTE 内条件 UPDATE 工序: completed_qty + delta <= plan_qty 原子防超报, 满量置完工
+    //  - 主 UPDATE 工单汇总: 仅进行中可报工, EXISTS(op) 保证工序命中才更新, 满量自动完工
+    auto r = co_await trans->execSqlCoro(
+        "WITH op AS ("
+        "  UPDATE prod_work_order_operations SET "
+        "    completed_qty = completed_qty + $1, good_qty = good_qty + $2, "
+        "    defect_qty = defect_qty + $3, operator_id = $4, "
+        "    status = CASE WHEN completed_qty + $1 >= plan_qty THEN 2 ELSE 1 END, "
+        "    actual_start_at = COALESCE(actual_start_at, NOW()), "
+        "    actual_end_at = CASE WHEN completed_qty + $1 >= plan_qty THEN NOW() "
+        "                         ELSE actual_end_at END "
+        "  WHERE work_order_id = $6 AND step_seq = $7 AND completed_qty + $1 <= plan_qty "
+        "  RETURNING id"
+        ") "
+        "UPDATE prod_work_orders SET "
+        "  completed_qty = completed_qty + $1, good_qty = good_qty + $2, "
+        "  defect_qty = defect_qty + $3, scrap_qty = scrap_qty + $5, "
+        "  status = CASE WHEN completed_qty + $1 >= plan_qty THEN $8 ELSE status END, "
+        "  actual_end_at = CASE WHEN completed_qty + $1 >= plan_qty THEN NOW() "
+        "                       ELSE actual_end_at END, "
+        "  updated_at = NOW() "
+        "WHERE id = $6 AND status = $9 AND EXISTS (SELECT 1 FROM op) "
+        "RETURNING completed_qty >= plan_qty AS finished, work_order_no, product_id",
+        SqlArg(delta), SqlArg(goodQty), SqlArg(defectQty), SqlArg(ctx.userId), SqlArg(scrapQty),
+        SqlArg(id), SqlArg(stepSeq),
+        SqlArg(static_cast<int>(WorkOrderStateMachine::kCompleted)),
+        SqlArg(static_cast<int>(WorkOrderStateMachine::kInProgress)));
+    if (r.empty()) {
+        // 未命中: 走诊断路径给出精确错误 (仅异常路径多次往返, 不影响热路径)
+        auto wo = co_await trans->execSqlCoro(
+            "SELECT status FROM prod_work_orders WHERE id = $1", SqlArg(id));
+        if (wo.empty())
+            throw NotFound("工单不存在");
+        if (wo[0]["status"].as<int>() != WorkOrderStateMachine::kInProgress)
+            throw Conflict("仅进行中的工单可报工");
+        auto op = co_await trans->execSqlCoro(
+            "SELECT completed_qty, plan_qty FROM prod_work_order_operations "
+            "WHERE work_order_id = $1 AND step_seq = $2",
+            SqlArg(id), SqlArg(stepSeq));
+        if (op.empty())
+            throw NotFound("工序不存在");
+        throw Conflict("工序超报: 已完成 " +
+                       std::to_string(op[0]["completed_qty"].as<int>()) + "/" +
                        std::to_string(op[0]["plan_qty"].as<int>()));
-    auto opDone = opCompleted + delta >= op[0]["plan_qty"].as<int>();
-    co_await trans->execSqlCoro(
-        "UPDATE prod_work_order_operations SET completed_qty = completed_qty + $1, "
-        "good_qty = good_qty + $2, defect_qty = defect_qty + $3, operator_id = $4, "
-        "status = CASE WHEN $5 THEN 2 ELSE 1 END, "
-        "actual_start_at = COALESCE(actual_start_at, NOW()), "
-        "actual_end_at = CASE WHEN $5 THEN NOW() ELSE actual_end_at END "
-        "WHERE id = $6",
-        delta, goodQty, defectQty, ctx.userId, opDone, op[0]["id"].as<int64_t>());
+    }
 
-    // 3. 工单汇总
-    co_await trans->execSqlCoro(
-        "UPDATE prod_work_orders SET completed_qty = completed_qty + $1, "
-        "good_qty = good_qty + $2, defect_qty = defect_qty + $3, scrap_qty = scrap_qty + $4, "
-        "updated_at = NOW() WHERE id = $5",
-        delta, goodQty, defectQty, scrapQty, id);
-
-    // 4. 满量自动完工: 事务内写 mq_outbox (停采指令), COMMIT 后投递
-    auto woCompleted = wo[0]["completed_qty"].as<int>() + delta;
-    bool finished = woCompleted >= wo[0]["plan_qty"].as<int>();
+    // 满量自动完工: 事务内写 mq_outbox (停采指令), COMMIT 后投递
+    bool finished = r[0]["finished"].as<bool>();
     if (finished) {
-        co_await trans->execSqlCoro(
-            "UPDATE prod_work_orders SET status = $1, actual_end_at = NOW(), "
-            "updated_at = NOW() WHERE id = $2",
-            static_cast<int>(WorkOrderStateMachine::kCompleted), id);
         nlohmann::json msg;
         msg["version"] = "1.0";
         msg["type"] = "stop_collection";
         msg["work_order_id"] = id;
-        msg["work_order_no"] = wo[0]["work_order_no"].as<std::string>();
-        msg["product_id"] = wo[0]["product_id"].isNull() ? 0 : wo[0]["product_id"].as<int64_t>();
+        msg["work_order_no"] = r[0]["work_order_no"].as<std::string>();
+        msg["product_id"] = r[0]["product_id"].isNull() ? 0 : r[0]["product_id"].as<int64_t>();
         msg["timestamp"] = TimeUtils::nowUtcIso();
         co_await trans->execSqlCoro(OutboxService::kEnqueueSql, "iot.exchange",
                                    "cmd.stop_collection", msg.dump());
     }
-    // trans 析构自动提交 -> OutboxDispatcher 异步投递, 杜绝"事务前发 MQ"
+    // 等待 COMMIT 落库 (outbox 随之可见, OutboxDispatcher 异步投递), 杜绝"提交前响应"
+    if (!co_await commitAwait(std::move(trans)))
+        throw Internal("报工事务提交失败");
     co_return nlohmann::json{{"id", id},
                              {"step_seq", stepSeq},
                              {"reported", delta},

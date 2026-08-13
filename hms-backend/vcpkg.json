@@ -3,7 +3,13 @@
     "version": "0.1.0",
     "description": "HMS Manufacturing Execution System backend (Drogon)",
     "dependencies": [
-        "drogon",
+        {
+            "name": "drogon",
+            "features": [
+                "postgres",
+                "redis"
+            ]
+        },
         "hiredis",
         "jwt-cpp",
         "simpleamqpclient",

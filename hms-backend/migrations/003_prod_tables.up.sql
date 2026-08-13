@@ -78,6 +78,8 @@ CREATE TABLE prod_process_steps (
 ALTER TABLE prod_products
     ADD CONSTRAINT fk_product_process FOREIGN KEY (process_id) REFERENCES prod_processes(id);
 
+CREATE SEQUENCE IF NOT EXISTS prod_work_order_no_seq; -- 工单号全局序列 (防随机号碰撞)
+
 CREATE TABLE prod_work_orders (
     id                  BIGSERIAL PRIMARY KEY,
     work_order_no       VARCHAR(64) NOT NULL UNIQUE,

@@ -58,6 +58,9 @@ void init() {
     addPublic("/healthz", "GET");
     addPublic("/api/v1/auth/login", "POST");
     addPublic("/api/v1/auth/captcha", "GET");
+    // WS 升级请求放行 advice 链; 身份在 WsController 以 query token 严格校验 (fail-closed)
+    addPublic("/ws", "GET");
+    addPublic("/ws/dashboard", "GET");
 
     // ---- 认证 (Bearer) ----
     add("/api/v1/auth/refresh", "POST", "auth:bearer");
@@ -120,6 +123,35 @@ void init() {
     add("/api/v1/production/products", "POST", "prod:product:add");
     add("/api/v1/production/plans", "GET", "prod:plan:list");
     add("/api/v1/production/plans", "POST", "prod:plan:add");
+
+    // ---- IoT 设备域 (4.7) ----
+    add("/api/v1/iot/devices", "GET", "iot:device:list");
+    add("/api/v1/iot/devices/{id}", "GET", "iot:device:query");
+    add("/api/v1/iot/devices", "POST", "iot:device:add");
+    add("/api/v1/iot/devices/{id}", "PUT", "iot:device:update");
+    add("/api/v1/iot/devices/{id}", "DELETE", "iot:device:delete");
+    add("/api/v1/iot/devices/{id}/status", "GET", "iot:device:query");
+    add("/api/v1/iot/devices/{id}/sensors", "GET", "iot:sensor:list");
+    add("/api/v1/iot/devices/{id}/sensors", "POST", "iot:sensor:add");
+    add("/api/v1/iot/devices/{id}/realtime-data", "GET", "iot:data:query");
+    add("/api/v1/iot/sensors/{id}/history", "GET", "iot:data:query");
+    add("/api/v1/iot/alerts", "GET", "iot:alert:list");
+    add("/api/v1/iot/alerts/{id}/acknowledge", "PUT", "iot:alert:handle");
+    add("/api/v1/iot/devices/{id}/command", "POST", "iot:device:command");
+    add("/api/v1/iot/tasks", "GET", "iot:task:list");
+    add("/api/v1/iot/tasks", "POST", "iot:task:add");
+    add("/api/v1/iot/tasks/{id}", "PUT", "iot:task:update");
+    add("/api/v1/iot/tasks/{id}", "DELETE", "iot:task:delete");
+    add("/api/v1/iot/tasks/{id}/toggle", "PUT", "iot:task:update");
+
+    // ---- 质量域 (4.8) ----
+    add("/api/v1/quality/standards", "GET", "qc:standard:list");
+    add("/api/v1/quality/inspections", "POST", "qc:inspection:add");
+    add("/api/v1/quality/inspections", "GET", "qc:inspection:list");
+    add("/api/v1/quality/inspections/{id}", "GET", "qc:inspection:query");
+    add("/api/v1/quality/defects", "GET", "qc:defect:list");
+    add("/api/v1/quality/defects/{id}/disposition", "PUT", "qc:defect:handle");
+    add("/api/v1/quality/statistics", "GET", "qc:stat:view");
 }
 
 std::string getPermission(const std::string& path, const std::string& method) {

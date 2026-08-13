@@ -56,10 +56,11 @@ if(HMS_BUILD_TESTS)
         tests/test_work_order_state_machine.cc
         tests/test_data_scope_filter.cc
         tests/test_jwt_utils.cc
+        tests/test_bcrypt.cc
         src/utils/JwtUtils.cc
         src/utils/TimeUtils.cc)
     target_include_directories(hms_unit_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(hms_unit_tests PRIVATE
-        GTest::gtest_main jwt-cpp::jwt-cpp nlohmann_json::nlohmann_json)
+        GTest::gtest_main jwt-cpp::jwt-cpp nlohmann_json::nlohmann_json bcrypt::bcrypt)
     add_test(NAME hms_unit_tests COMMAND hms_unit_tests)
 endif()

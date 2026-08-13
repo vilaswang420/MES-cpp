@@ -10,6 +10,7 @@
 #include <sstream>
 
 #include "common/ApiResponse.hh"
+#include "common/SqlParam.hh"
 #include "middlewares/perm_routes.hh"
 #include "services/RbacService.hh"
 #include "utils/JwtUtils.hh"
@@ -93,7 +94,7 @@ void jwtCheck(const drogon::HttpRequestPtr& req, drogon::AdviceCallback&& acb,
             LOG_ERROR << "redis blacklist check failed: " << e.what();
             (*acbPtr)(ApiResponse::error(401, "认证服务暂不可用", traceId));
         },
-        "EXISTS jwt:blacklist:%s", sessionId);
+        "EXISTS jwt:blacklist:%s", sessionId.c_str());
 }
 
 // ---------- RBAC 权限检查 (原 RbacMiddleware, fail-closed) ----------
@@ -223,7 +224,7 @@ void flush() {
                     LOG_ERROR << "audit insert failed for " << url << ": " << ex.base().what();
                 },
                 e.userId, e.username, e.module, e.operation, e.method, e.url, e.params,
-                e.responseCode, e.errorMsg, e.ip, e.userAgent, e.durationMs);
+                SqlArg(e.responseCode), e.errorMsg, e.ip, e.userAgent, SqlArg(e.durationMs));
         } catch (const std::exception& ex) {
             LOG_ERROR << "audit enqueue failed: " << ex.what();
         }

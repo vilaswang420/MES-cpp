@@ -1,4 +1,4 @@
-# M1 出口 E2E (计划: M1 出口标准硬门禁), 全程无人工改库:
+﻿# M1 出口 E2E (计划: M1 出口标准硬门禁), 全程无人工改库:
 #   登录 -> 建产品/产线/工艺 -> 建单 -> 排产 -> 下达 -> 开工
 #   -> 报工x2 -> 自动完工 -> outbox 标记已投递
 #   反例: operator 访问 system:user:list 403; data_scope=1 查不到他人工单; 审计可分页查询
@@ -101,7 +101,7 @@ Write-Host "  自动完工确认: status=$($detail.status) completed=$($detail.c
 Step "验证 mq_outbox 已投递"
 $dispatched = $false
 for ($i = 0; $i -lt 15; $i++) {
-    $outbox = docker exec hms-postgres psql -U hms -d hms -t -A -c "SELECT COUNT(*) FROM mq_outbox WHERE routing_key='cmd.stop_collection' AND dispatched_at IS NOT NULL AND payload LIKE '%$($wo.work_order_no)%';"
+    $outbox = docker exec hms-postgres psql -U hms -d hms -t -A -c "SELECT COUNT(*) FROM mq_outbox WHERE routing_key='cmd.stop_collection' AND status = 1 AND sent_at IS NOT NULL AND payload LIKE '%$($wo.work_order_no)%';"
     if ([int]$outbox -ge 1) { $dispatched = $true; break }
     Start-Sleep -Seconds 1
 }

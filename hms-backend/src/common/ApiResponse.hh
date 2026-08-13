@@ -1,6 +1,7 @@
 #pragma once
 
 #include <drogon/HttpResponse.h>
+#include <drogon/drogon.h>
 #include <nlohmann/json.hpp>
 
 #include <stdexcept>
@@ -73,8 +74,16 @@ class ApiResponse {
 
         // Drogon 的 newHttpJsonResponse 收 jsoncpp 的 Json::Value; 本项目用 nlohmann,
         // 故手工序列化后以字符串体构造, 并显式声明 JSON 内容类型
+        std::string dumped;
+        try {
+            dumped = body.dump();
+        } catch (const std::exception& e) {
+            // 防御: 非法 UTF-8 时以 replace 模式转储, 避免异常逃逸事件循环杀死进程
+            LOG_ERROR << "response dump replaced invalid utf-8: " << e.what();
+            dumped = body.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+        }
         auto resp = drogon::HttpResponse::newHttpResponse();
-        resp->setBody(body.dump());
+        resp->setBody(dumped);
         resp->setContentTypeCode(drogon::CT_APPLICATION_JSON);
         resp->setContentTypeString("application/json; charset=utf-8");
         if (code != 200) {

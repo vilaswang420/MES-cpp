@@ -1,9 +1,11 @@
 {
-    "amqp_url": "amqp://hms:hms_dev_pwd@127.0.0.1:5672/",
+    "amqp_url": "amqp://hms:hms_dev_pwd@127.0.0.1:5672/%2F",
     "exchange": "iot.exchange",
     "consume_queues": [
         "iot.cmd.queue"
     ],
+    "data_queue": "iot.data.queue",
+    "alert_queue": "iot.alert.queue",
     "prefetch_count": 50,
     "publisher_confirms": true,
     "comment": "M2: DataIngestHandler 的 prefetch 由 50 起步, 压测调至 200-500 (计划任务19)"

@@ -3,7 +3,7 @@
   "users": [
     {
       "name": "hms",
-      "password_hash": "",
+      "password_hash": "349884e70f43263846cc1669271768e388c057dc644a4480d91350f5041e903587b633f2",
       "hashing_algorithm": "rabbit_password_hashing_sha256",
       "tags": ["administrator"]
     }
@@ -67,7 +67,7 @@
       "arguments": {
         "x-message-ttl": 10000,
         "x-dead-letter-exchange": "iot.exchange",
-        "x-dead-letter-routing-key": "retry.data"
+        "x-dead-letter-routing-key": "data.retry"
       }
     },
     {

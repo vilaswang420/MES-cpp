@@ -16,7 +16,8 @@ std::thread g_thread;
 } // namespace
 
 void start(const nlohmann::json& config) {
-    auto url = config.value("amqp_url", "amqp://guest:guest@127.0.0.1:5672/");
+    // vhost "/" 必须 URL 编码为 %2F, 否则 rabbitmq-c 解析为空 vhost 导致 NOT_ALLOWED
+    auto url = config.value("amqp_url", "amqp://guest:guest@127.0.0.1:5672/%2F");
     std::vector<std::string> queues;
     if (config.contains("consume_queues"))
         for (const auto& q : config["consume_queues"])

@@ -31,7 +31,8 @@ bool ensureChannelLocked() {
 
 void init(const nlohmann::json& config) {
     std::lock_guard lock(g_mutex);
-    g_amqpUrl = config.value("amqp_url", "amqp://guest:guest@127.0.0.1:5672/");
+    // vhost "/" 必须 URL 编码为 %2F, 否则 rabbitmq-c 解析为空 vhost 导致 NOT_ALLOWED
+    g_amqpUrl = config.value("amqp_url", "amqp://guest:guest@127.0.0.1:5672/%2F");
     // publisher_confirms: vcpkg 版 SimpleAmqpClient 无 confirm API, 配置保留待升级库后启用;
     // 可靠性由 mq_outbox 重投兜底 (OutboxDispatcher)
 }

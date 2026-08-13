@@ -8,6 +8,7 @@
 #include <coroutine>
 #include <thread>
 
+#include "common/SqlParam.hh"
 #include "mq/MqProducer.hh"
 
 namespace hms::OutboxDispatcher {
@@ -45,12 +46,17 @@ struct BlockingAwaiter : drogon::CallbackAwaiter<bool> {
 drogon::Task<> tick() {
     if (g_running.exchange(true))
         co_return; // 上一轮未结束, 跳过
+    // 作用域守卫: 任何路径退出(含提前 co_return)都复位运行标志,
+    // 否则一次锁竞争失败将永久停掉投递器
+    struct Guard {
+        ~Guard() { g_running = false; }
+    } guard;
     try {
         auto db = drogon::app().getDbClient();
         auto trans = co_await db->newTransactionCoro();
 
         auto lock = co_await trans->execSqlCoro("SELECT pg_try_advisory_xact_lock($1)",
-                                                  kAdvisoryLockKey);
+                                                  SqlArg(kAdvisoryLockKey));
         if (!lock[0][0].as<bool>())
             co_return; // 其他实例正在投递
 
@@ -59,7 +65,7 @@ drogon::Task<> tick() {
             co_await trans->execSqlCoro("SELECT id, exchange, routing_key, payload FROM mq_outbox "
                                        "WHERE status = 0 OR (status = 2 AND retry_count < $1) "
                                        "ORDER BY created_at LIMIT $2 FOR UPDATE SKIP LOCKED",
-                                       kMaxRetry, kBatchSize);
+                                       SqlArg(kMaxRetry), SqlArg(kBatchSize));
 
         for (const auto& row : rows) {
             auto id = row["id"].as<int64_t>();
@@ -73,12 +79,12 @@ drogon::Task<> tick() {
             });
             if (ok) {
                 co_await trans->execSqlCoro(
-                    "UPDATE mq_outbox SET status = 1, sent_at = NOW() WHERE id = $1", id);
+                    "UPDATE mq_outbox SET status = 1, sent_at = NOW() WHERE id = $1", SqlArg(id));
             } else {
                 co_await trans->execSqlCoro(
                     "UPDATE mq_outbox SET status = 2, retry_count = retry_count + 1 "
                     "WHERE id = $1",
-                    id);
+                    SqlArg(id));
                 LOG_WARN << "outbox dispatch failed, id=" << id;
             }
         }
@@ -86,13 +92,22 @@ drogon::Task<> tick() {
     } catch (const std::exception& e) {
         LOG_ERROR << "outbox tick error: " << e.what();
     }
-    g_running = false;
+}
+
+// Drogon Task 为惰性协程 (initial_suspend = suspend_always),
+// 直接丢弃返回值 (void)tick() 永远不会执行; 须经 eager 的 AsyncTask 启动。
+drogon::AsyncTask runTick() {
+    try {
+        co_await tick();
+    } catch (const std::exception& e) {
+        LOG_ERROR << "outbox tick error: " << e.what();
+    }
 }
 
 } // namespace
 
 void start() {
-    drogon::app().getLoop()->runEvery(2.0, [] { (void)tick(); });
+    drogon::app().getLoop()->runEvery(2.0, [] { runTick(); });
     LOG_INFO << "outbox dispatcher started (interval=2s, batch=" << kBatchSize << ")";
 }
 

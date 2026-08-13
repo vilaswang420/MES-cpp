@@ -78,3 +78,20 @@
 1. **publisher confirms**：vcpkg 版 SimpleAmqpClient 无 confirm API，配置项保留，待库升级后启用；当前由 mq_outbox 重投保证最终一致。
 2. 集成测试（真实 DB 的 API 级测试）待后续补充。
 3. 已有环境补扩展的临时操作已脚本化（`.hms-stage/s5-ext.ps1`）；全新环境由 initdb 自动完成，无需干预。
+
+## M1 出口与 M2 进展纪要（2026-08-13）
+
+### M1 出口（全部通过）
+
+- E2E `m1_flow.ps1`、并发超报 `concurrent_report.ps1`、权限映射门禁（76 路由）、单测 26/26 全绿。
+- k6 第 7 轮达标：P95=283.98ms、http_req_failed=0.002%、api_error=0.001%，3504 rps / 210 万迭代。
+- 关键修复：`genWorkOrderNo` 改全局序列（随机数碰撞）；k6 脚本 fail-fast + 30s ramp。
+
+### M2 联调关键修复
+
+| 问题 | 修复 |
+|---|---|
+| `WS_PATH_ADD` 宏不带尾分号 → C2146 | 每行手动补 `;` |
+| hiredis 订阅连接 `redisSetTimeout` 后永远读不到消息（err=6 忙旋） | 订阅连接改无超时阻塞读 |
+| docker exec 传 JSON 引号被吃 | payload/sh 脚本写文件 → docker cp → 容器内执行 |
+| WS 冒烟 ReceiveAsync 无法取消 | Task.WhenAny + Task.Delay 超时模式 |

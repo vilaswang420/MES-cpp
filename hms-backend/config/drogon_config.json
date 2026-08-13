@@ -1,6 +1,6 @@
 {
     "app": {
-        "threads_num": 4,
+        "threads_num": 8,
         "enable_server_header": false,
         "document_root": "./static",
         "upload_path": "./uploads",
@@ -17,14 +17,14 @@
     ],
     "db_clients": [
         {
-            "name": "postgresql",
+            "name": "default",
             "rdbms": "postgresql",
             "host": "127.0.0.1",
             "port": 5432,
             "dbname": "hms",
             "user": "hms",
             "passwd": "hms_dev_pwd",
-            "connection_number": 16,
+            "connection_number": 64,
             "is_fast": false,
             "character_set": "UTF8"
         }
@@ -36,7 +36,7 @@
             "port": 6379,
             "passwd": "",
             "db": 0,
-            "connection_number": 8
+            "connection_number": 32
         }
     ],
     "log": {
