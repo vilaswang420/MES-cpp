@@ -179,11 +179,18 @@ services:
       # 任务 24/26: 无状态扩容 (JWT 黑名单/权限全走 Redis; outbox advisory lock 互斥投递)
       replicas: 2
     environment:
+      # ⚠ 后端实际读配置文件 (config/drogon_config.json + config/rabbitmq.json),
+      # 以下 env 仅作部署元信息声明, 真实连接串在挂载的配置里 (见 docs/DEPLOY_LINUX.md)
       HMS_PG_DSN: "host=pgbouncer port=6432 dbname=hms user=hms password=${HMS_PG_PASSWORD}"
       # 读写分离: 只读副本 DSN (任务 25)
       HMS_PG_RO_DSN: "host=postgres-replica port=5432 dbname=hms user=hms password=${HMS_PG_PASSWORD}"
       HMS_REDIS: "redis-1:6379"
       HMS_MQ_URL: "amqp://hms:${HMS_MQ_PASSWORD}@rabbitmq-1:5672/"
+    volumes:
+      # 生产配置目录 (drogon_config.json 指向 pgbouncer:6432 + 真实密码/JWT 密钥;
+      # rabbitmq.json 指向 rabbitmq-1): 由部署手册第 5 步生成
+      - ./config-prod:/app/config:ro
+      - hms_backend_logs:/app/logs
     expose:
       - "8088"
     depends_on:
@@ -199,9 +206,12 @@ services:
       - "80:80"
     volumes:
       - ../nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # 证书: 自签用 scripts/gen_selfsigned_cert.ps1 产物; 正式域名用 certbot 产物
+      # (手册第 6 步: 把 fullchain.pem/privkey.pem 复制为 hms.crt/hms.key)
       - ../nginx/certs:/etc/nginx/certs:ro
-      - hms_web_dist:/srv/hms-web:ro
-      - hms_dashboard_dist:/srv/hms-dashboard:ro
+      # 前端静态产物 (手册第 7 步从 web/dashboard 镜像提取或本机 npm run build)
+      - ./web-dist:/srv/hms-web:ro
+      - ./dashboard-dist:/srv/hms-dashboard:ro
     depends_on:
       - backend
 
@@ -230,5 +240,4 @@ volumes:
   hms_rmq_2:
   hms_rmq_3:
   hms_prometheus:
-  hms_web_dist:
-  hms_dashboard_dist:
+  hms_backend_logs:
