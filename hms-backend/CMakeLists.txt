@@ -14,18 +14,30 @@ find_package(Drogon CONFIG REQUIRED)
 find_package(hiredis CONFIG REQUIRED)
 find_package(jwt-cpp CONFIG REQUIRED)
 # SimpleAmqpClient: vcpkg port 只提供 pkg-config 无 CMake Config, 手工建 INTERFACE target
-# 动态链接导入库带版本后缀: SimpleAmqpClient.7.lib / rabbitmq.4.lib
-find_library(SIMPLEAMQPCLIENT_LIB NAMES SimpleAmqpClient.7 REQUIRED)
-find_library(SIMPLEAMQPCLIENT_LIB_DEBUG NAMES SimpleAmqpClient.7 PATHS "${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/debug/lib" NO_DEFAULT_PATH)
-find_library(RABBITMQ_LIB NAMES rabbitmq.4 REQUIRED)
-find_library(RABBITMQ_LIB_DEBUG NAMES rabbitmq.4 PATHS "${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/debug/lib" NO_DEFAULT_PATH)
+# Windows vcpkg 动态链接导入库带版本后缀: SimpleAmqpClient.7.lib / rabbitmq.4.lib
+# Linux vcpkg 静态/动态库无版本后缀: libSimpleAmqpClient.a / librabbitmq.a
+if(WIN32)
+    find_library(SIMPLEAMQPCLIENT_LIB NAMES SimpleAmqpClient.7 REQUIRED)
+    find_library(SIMPLEAMQPCLIENT_LIB_DEBUG NAMES SimpleAmqpClient.7
+        PATHS "${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/debug/lib" NO_DEFAULT_PATH)
+    find_library(RABBITMQ_LIB NAMES rabbitmq.4 REQUIRED)
+    find_library(RABBITMQ_LIB_DEBUG NAMES rabbitmq.4
+        PATHS "${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/debug/lib" NO_DEFAULT_PATH)
+else()
+    find_library(SIMPLEAMQPCLIENT_LIB NAMES SimpleAmqpClient REQUIRED)
+    find_library(RABBITMQ_LIB NAMES rabbitmq REQUIRED)
+    set(SIMPLEAMQPCLIENT_LIB_DEBUG "${SIMPLEAMQPCLIENT_LIB}")
+    set(RABBITMQ_LIB_DEBUG "${RABBITMQ_LIB}")
+endif()
 add_library(SimpleAmqpClient_SAC INTERFACE)
 target_include_directories(SimpleAmqpClient_SAC INTERFACE
     "${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include")
 target_link_libraries(SimpleAmqpClient_SAC INTERFACE
     "$<IF:$<CONFIG:Debug>,${SIMPLEAMQPCLIENT_LIB_DEBUG},${SIMPLEAMQPCLIENT_LIB}>"
-    "$<IF:$<CONFIG:Debug>,${RABBITMQ_LIB_DEBUG},${RABBITMQ_LIB}>"
-    ws2_32)
+    "$<IF:$<CONFIG:Debug>,${RABBITMQ_LIB_DEBUG},${RABBITMQ_LIB}>")
+if(WIN32)
+    target_link_libraries(SimpleAmqpClient_SAC INTERFACE ws2_32)
+endif()
 add_library(SimpleAmqpClient::SimpleAmqpClient ALIAS SimpleAmqpClient_SAC)
 find_package(nlohmann_json CONFIG REQUIRED)
 

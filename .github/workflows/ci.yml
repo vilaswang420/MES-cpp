@@ -77,7 +77,7 @@ jobs:
             - name: "down 全量 (dev 约定: 生产只进不退)"
               run: |
                   migrate -path hms-backend/migrations \
-                    -database "postgres://hms:hms_ci_pwd@127.0.0.1:5432/hms_ci?sslmode=disable" down
+                    -database "postgres://hms:hms_ci_pwd@127.0.0.1:5432/hms_ci?sslmode=disable" down 9
             - name: 再次 up (往返后仍可破坏)
               run: |
                   migrate -path hms-backend/migrations \
@@ -89,15 +89,15 @@ jobs:
         steps:
             - uses: actions/checkout@v4
             - name: 系统依赖
-              run: sudo apt-get update && sudo apt-get install -y cmake ninja-build libssl-dev zlib1g-dev libjsoncpp-dev uuid-dev
+              run: sudo apt-get update && sudo apt-get install -y cmake ninja-build libssl-dev zlib1g-dev libjsoncpp-dev uuid-dev clang-format
             - name: vcpkg 构建 (drogon/jwt-cpp/bcrypt/simpleamqpclient/gtest)
               uses: lukka/run-vcpkg@v11
               with:
-                  vcpkgGitCommitId: "2024.07.12"
+                  vcpkgGitCommitId: "ea1a7396b05637a53bf23c078647ecc0edee4b80"
             - name: clang-format 检查
               run: |
                   cd hms-backend
-                  find src tests -name '*.cc' -o -name '*.hh' | xargs clang-format --dry-run --Werror
+                  find src tests \( -name '*.cc' -o -name '*.hh' \) -print0 | xargs -0 clang-format --dry-run --Werror
             - name: CMake 配置 + 构建
               run: |
                   cmake -S hms-backend -B build -G Ninja \
