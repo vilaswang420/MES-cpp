@@ -199,6 +199,28 @@ services:
       rabbitmq-1:
         condition: service_started
 
+  # ---- IoT 采集服务 (P4-5.1) ----
+  iot:
+    image: ${HMS_REGISTRY:-registry.local}/hms-iot:${HMS_VERSION:-latest}
+    environment:
+      # iot.json 通过挂载覆盖 (backend_url 指向 backend:8088 内网, amqp 指向 rabbitmq-1)
+      HMS_IOT_BACKEND_URL: "http://backend:8088"
+      HMS_IOT_AMQP_URL: "amqp://hms:${HMS_MQ_PASSWORD}@rabbitmq-1:5672/"
+    volumes:
+      - ./config-iot:/app/config:ro
+    expose:
+      - "8091"
+    depends_on:
+      rabbitmq-1:
+        condition: service_started
+      backend:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8091 && printf 'GET /healthz HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q ok <&3"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
   nginx:
     image: nginx:1.27-alpine
     ports:

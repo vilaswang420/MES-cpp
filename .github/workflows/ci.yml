@@ -137,3 +137,20 @@ jobs:
                   cache-dependency-path: hms-dashboard/package-lock.json
             - run: npm ci
             - run: npm run build
+
+    iot:
+        name: hms-iot 编译
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - name: 系统依赖
+              run: sudo apt-get update && sudo apt-get install -y cmake ninja-build
+            - name: vcpkg 构建 (simpleamqpclient/nlohmann-json)
+              uses: lukka/run-vcpkg@v11
+              with:
+                  vcpkgGitCommitId: "ea1a7396b05637a53bf23c078647ecc0edee4b80"
+            - name: CMake 配置 + 构建
+              run: |
+                  cmake -S hms-iot -B build-iot -G Ninja \
+                    -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/vcpkg.cmake -DCMAKE_BUILD_TYPE=Release
+                  cmake --build build-iot --parallel

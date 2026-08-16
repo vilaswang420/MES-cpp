@@ -1,20 +1,18 @@
-// hms-iot 采集服务骨架 (计划任务 18, M2 实施)。
-// 目标并发模型: epoll 事件循环 + 协议 worker 线程池;
-// 采集线程就地缩放/校验 -> 发布线程批量 publish (>=100 条或 100ms 窗口,
-// publisher confirms); 消息严格遵守 contracts/iot-message.schema.json。
-//
-// M0 阶段交付: /healthz 探针 + 配置加载 + 批量发布器骨架;
-// Modbus TCP 采集实现与停采指令消费在 M2 接入 (先用 scripts/iot_simulator.py 联调)。
+// hms-iot 采集服务 (P4-5.1: Modbus TCP 真实采集)
+// 架构: ConfigLoader → DevicePoller 线程池 → CmdConsumer → BatchPublisher → healthz
+// Linux 目标平台; Windows 仅编译骨架 (healthz + publisher, 无采集)。
 #include <nlohmann/json.hpp>
 #include <SimpleAmqpClient/SimpleAmqpClient.h>
 
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <csignal>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <mutex>
 #include <queue>
 #include <string>
@@ -25,14 +23,18 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include "collector/ConfigLoader.hh"
+#include "collector/DevicePoller.hh"
+#include "cmd/CmdConsumer.hh"
 #endif
 
 namespace
 {
-
     std::atomic<bool> g_running{true};
 
-    // ---- /healthz 极简探针 (M0 出口: 四服务 healthz 200) ----
+    void signalHandler(int) { g_running = false; }
+
+    // ---- /healthz 极简探针 ----
     void healthzServer(int port)
     {
 #ifdef _WIN32
@@ -78,7 +80,7 @@ namespace
 #endif
     }
 
-    // ---- 批量发布器骨架 (M2: 接入真实采集管道) ----
+    // ---- 批量发布器 (100 条或 100ms 窗口) ----
     class BatchPublisher
     {
     public:
@@ -89,11 +91,9 @@ namespace
 
         void start()
         {
-            worker_ = std::thread([this]
-                                  { loop(); });
+            worker_ = std::thread([this] { loop(); });
         }
 
-        // 采集线程入口: 就地缩放/校验后入队 (schema 见 contracts/iot-message.schema.json)
         void enqueue(std::string messageJson)
         {
             {
@@ -121,8 +121,7 @@ namespace
                 {
                     std::unique_lock lock(mu_);
                     cv_.wait_for(lock, std::chrono::milliseconds(flushMs_),
-                                 [this]
-                                 { return !queue_.empty() || !g_running; });
+                                 [this] { return !queue_.empty() || !g_running; });
                     while (!queue_.empty() && (int)batch.size() < batchSize_)
                     {
                         batch.push_back(std::move(queue_.front()));
@@ -146,7 +145,6 @@ namespace
                         msg.setDeliveryMode(Amqp::Message::dm_persistent);
                         channel->PublishMessage(exchange_, routingKey_, msg);
                     }
-                    // M2: publisher confirms 批量确认 + 失败重入队策略
                 }
                 catch (const std::exception &e)
                 {
@@ -169,6 +167,9 @@ namespace
 
 int main(int argc, char **argv)
 {
+    std::signal(SIGINT, signalHandler);
+    std::signal(SIGTERM, signalHandler);
+
     std::string cfgPath = argc > 1 ? argv[1] : "config/iot.json";
     nlohmann::json cfg;
     {
@@ -190,12 +191,74 @@ int main(int argc, char **argv)
 
     std::thread healthz(healthzServer, cfg.value("healthz_port", 8091));
 
-    // TODO(M2 任务 18): epoll 事件循环 + Modbus TCP worker 线程池;
-    // 每设备按 poll_interval_ms 轮询, 采集线程就地 scale/校验后 publisher.enqueue();
-    // TODO(M2 任务 19): 消费 iot.cmd.collector.queue (cmd.stop.# 停采 / cmd.dev.# 设备指令,
-    // 见 deploy/mq/topology.json) 并暂停/恢复对应设备轮询。
-    std::cout << "[hms-iot] skeleton started; collectors pending M2 implementation\n";
+#ifndef _WIN32
+    // ---- P4-5.1: Modbus TCP 真实采集管线 ----
+    std::string backendUrl = cfg.value("backend_url", "http://127.0.0.1:8088");
+    std::string backendUser = cfg.value("backend_user", "admin");
+    std::string backendPwd = cfg.value("backend_pwd", "");
 
+    if (backendPwd.empty())
+    {
+        std::cerr << "[hms-iot] backend_pwd not set in config; cannot load device config\n";
+        std::cerr << "[hms-iot] running in skeleton mode (publisher + healthz only)\n";
+    }
+    else
+    {
+        // Step 1: 从后端 REST 拉取设备+传感器配置
+        auto configResult = hms::iot::loadConfig(backendUrl, backendUser, backendPwd);
+        if (!configResult.ok)
+        {
+            std::cerr << "[hms-iot] config load failed: " << configResult.error << "\n";
+            std::cerr << "[hms-iot] running in skeleton mode\n";
+        }
+        else
+        {
+            // Step 2: 创建 DevicePoller 线程池
+            std::vector<std::unique_ptr<hms::iot::DevicePoller>> pollers;
+            auto publishFn = [&publisher](const std::string &msg) {
+                publisher.enqueue(msg);
+            };
+
+            for (auto &devCfg : configResult.devices)
+            {
+                auto poller = std::make_unique<hms::iot::DevicePoller>(
+                    std::move(devCfg), publishFn);
+                poller->start();
+                pollers.push_back(std::move(poller));
+            }
+
+            std::cout << "[hms-iot] started " << pollers.size() << " device poller(s)\n";
+
+            // Step 3: 创建 CmdConsumer (停采/恢复指令)
+            hms::iot::CmdConsumer cmdConsumer(
+                cfg.value("amqp_url", "amqp://guest:guest@127.0.0.1:5672/"),
+                cfg.value("exchange", "iot.exchange"));
+            for (auto &p : pollers)
+            {
+                cmdConsumer.registerPoller(p.get());
+            }
+            cmdConsumer.start();
+
+            std::cout << "[hms-iot] Modbus TCP collection started\n";
+
+            // 等待退出信号
+            while (g_running)
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+
+            // 优雅关闭
+            cmdConsumer.stop();
+            for (auto &p : pollers)
+                p->stop();
+
+            publisher.stop();
+            healthz.join();
+            return 0;
+        }
+    }
+#endif
+
+    // 骨架模式 (Windows / 配置加载失败)
+    std::cout << "[hms-iot] skeleton started; collectors not available\n";
     while (g_running)
         std::this_thread::sleep_for(std::chrono::seconds(1));
 
