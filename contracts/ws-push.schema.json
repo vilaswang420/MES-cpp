@@ -32,8 +32,273 @@
         },
         "payload": {
             "type": "object",
-            "description": "频道自定义载荷; 各频道 schema 在本文件后续版本分节定义"
+            "description": "频道自定义载荷; 结构由 channel 决定 (见 allOf 条件分支)"
         }
     },
-    "additionalProperties": false
+    "allOf": [
+        {
+            "if": {
+                "properties": {
+                    "channel": {
+                        "const": "production.realtime"
+                    }
+                },
+                "required": [
+                    "channel"
+                ]
+            },
+            "then": {
+                "properties": {
+                    "payload": {
+                        "$ref": "#/$defs/payloadProductionRealtime"
+                    }
+                }
+            }
+        },
+        {
+            "if": {
+                "properties": {
+                    "channel": {
+                        "const": "device.status"
+                    }
+                },
+                "required": [
+                    "channel"
+                ]
+            },
+            "then": {
+                "properties": {
+                    "payload": {
+                        "$ref": "#/$defs/payloadDeviceStatus"
+                    }
+                }
+            }
+        },
+        {
+            "if": {
+                "properties": {
+                    "channel": {
+                        "const": "alert"
+                    }
+                },
+                "required": [
+                    "channel"
+                ]
+            },
+            "then": {
+                "properties": {
+                    "payload": {
+                        "$ref": "#/$defs/payloadAlert"
+                    }
+                }
+            }
+        },
+        {
+            "if": {
+                "properties": {
+                    "channel": {
+                        "const": "workorder.event"
+                    }
+                },
+                "required": [
+                    "channel"
+                ]
+            },
+            "then": {
+                "properties": {
+                    "payload": {
+                        "$ref": "#/$defs/payloadWorkorderEvent"
+                    }
+                }
+            }
+        }
+    ],
+    "additionalProperties": false,
+    "$defs": {
+        "payloadProductionRealtime": {
+            "type": "object",
+            "description": "production.realtime 载荷: 进行中工单 (status=3) 实时快照, 1Hz 推送。yield_rate 为完工率 (good_qty/plan_qty*100); 真 OEE (可用率×性能×良率) 见计划 5.4",
+            "required": [
+                "line_id",
+                "line_name",
+                "work_order_no",
+                "product_name",
+                "target_qty",
+                "completed_qty",
+                "good_qty",
+                "defect_qty",
+                "yield_rate",
+                "status",
+                "timestamp"
+            ],
+            "properties": {
+                "line_id": {
+                    "type": "integer",
+                    "description": "产线 ID; 无绑定产线时为 0"
+                },
+                "line_name": {
+                    "type": "string",
+                    "description": "产线名称 (无则空串)"
+                },
+                "work_order_no": {
+                    "type": "string",
+                    "description": "工单号"
+                },
+                "product_name": {
+                    "type": "string",
+                    "description": "产品名称 (无则空串)"
+                },
+                "target_qty": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "计划数量"
+                },
+                "completed_qty": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "累计报工数量"
+                },
+                "good_qty": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "合格数量"
+                },
+                "defect_qty": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "缺陷数量"
+                },
+                "yield_rate": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100,
+                    "description": "完工率百分比 = good_qty/plan_qty*100; 命名避免与真 OEE 混淆 (2.3)"
+                },
+                "status": {
+                    "type": "integer",
+                    "const": 3,
+                    "description": "工单状态; 本频道仅推送进行中 (3)"
+                },
+                "timestamp": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$",
+                    "description": "快照时间, UTC ISO 8601"
+                }
+            }
+        },
+        "payloadDeviceStatus": {
+            "type": "object",
+            "description": "device.status 载荷: 单设备单传感器最新值 (DataIngestHandler 批量入库后广播), 按 device_id 去重展示",
+            "required": [
+                "device_id",
+                "device_code",
+                "sensor_id",
+                "value",
+                "quality",
+                "ts"
+            ],
+            "properties": {
+                "device_id": {
+                    "type": "integer",
+                    "description": "设备 ID"
+                },
+                "device_code": {
+                    "type": "string",
+                    "description": "设备编码"
+                },
+                "sensor_id": {
+                    "type": "integer",
+                    "description": "传感器 ID"
+                },
+                "value": {
+                    "description": "采集值: 数值传感器为 number, 枚举/状态传感器为 string",
+                    "oneOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "type": "string"
+                        }
+                    ]
+                },
+                "quality": {
+                    "type": "integer",
+                    "description": "数据质量: 0 无效 1 有效 2 可疑"
+                },
+                "ts": {
+                    "type": "string",
+                    "description": "采集时间, UTC ISO 8601"
+                }
+            }
+        },
+        "payloadAlert": {
+            "type": "object",
+            "description": "alert 载荷: 告警事件 (AlertHandler 消费 iot.alert.queue 后广播), 字段为 MQ 告警消息体 + level 映射 + timestamp",
+            "required": [
+                "device_id",
+                "sensor_id",
+                "alert_type",
+                "level",
+                "alert_value",
+                "threshold",
+                "message",
+                "timestamp"
+            ],
+            "properties": {
+                "device_id": {
+                    "type": "integer"
+                },
+                "device_code": {
+                    "type": "string",
+                    "description": "设备编码 (MQ 消息体可选字段)"
+                },
+                "sensor_id": {
+                    "type": "integer"
+                },
+                "alert_type": {
+                    "type": "string",
+                    "description": "告警类型 (如 HIGH/LOW/STATUS)"
+                },
+                "level": {
+                    "type": "string",
+                    "enum": [
+                        "critical",
+                        "warning"
+                    ],
+                    "description": "告警级别语义映射: 原始 level>=3 -> critical, 否则 warning"
+                },
+                "alert_value": {
+                    "description": "触发值"
+                },
+                "threshold": {
+                    "description": "阈值"
+                },
+                "message": {
+                    "type": "string",
+                    "description": "告警描述"
+                },
+                "timestamp": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$",
+                    "description": "服务端广播时间, UTC ISO 8601"
+                }
+            }
+        },
+        "payloadWorkorderEvent": {
+            "type": "object",
+            "description": "workorder.event 载荷 (预留频道, 当前无生产者): 工单生命周期事件 (创建/开工/报工/完工/取消)。发布方接入时需按实际字段补充本子 schema",
+            "properties": {
+                "event": {
+                    "type": "string",
+                    "description": "事件类型 (planned: create / started / reported / completed / cancelled)"
+                },
+                "work_order_no": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "integer"
+                }
+            }
+        }
+    }
 }

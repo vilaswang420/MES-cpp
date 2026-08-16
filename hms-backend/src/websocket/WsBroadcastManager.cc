@@ -115,7 +115,8 @@ void queryAndPushRealtime() {
                     {"completed_qty", completedQty},
                     {"good_qty", goodQty},
                     {"defect_qty", defectQty},
-                    {"oee", planQty > 0 ? goodQty * 100.0 / planQty : 0.0},
+                    // 完工率 (yield_rate): good_qty/plan_qty*100; 真 OEE 见 5.4 (MQ 消费者)
+                    {"yield_rate", planQty > 0 ? goodQty * 100.0 / planQty : 0.0},
                     {"status", status},
                     {"timestamp", TimeUtils::nowUtcIso()}};
                 publish("production.realtime", payload);

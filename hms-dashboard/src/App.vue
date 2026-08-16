@@ -65,7 +65,7 @@ async function fetchSnapshot() {
             completed_qty: first.completed_qty,
             good_qty: good,
             defect_qty: first.defect_qty,
-            oee: plan > 0 ? (good * 100) / plan : 0,
+            yield_rate: plan > 0 ? (good * 100) / plan : 0,
             status: first.status,
             timestamp: new Date().toISOString(),
             degraded_source: true,
