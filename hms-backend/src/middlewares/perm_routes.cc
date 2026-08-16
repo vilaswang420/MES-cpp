@@ -113,16 +113,23 @@ void init() {
     add("/api/v1/production/work-orders/{id}/pause", "PUT", "prod:wo:pause");
     add("/api/v1/production/work-orders/{id}/complete", "PUT", "prod:wo:complete");
     add("/api/v1/production/work-orders/{id}/close", "PUT", "prod:wo:close");
+    add("/api/v1/production/work-orders/{id}/cancel", "PUT", "prod:wo:cancel");
     add("/api/v1/production/work-orders/{id}/report", "POST", "prod:wo:report");
 
-    // ---- 产线/工位/工艺/产品/计划 (4.6) ----
+    // ---- 产线/工位/工艺/产品/计划 (4.6, P1-2.7 补 PUT/DELETE) ----
     add("/api/v1/production/lines", "GET", "prod:line:list");
     add("/api/v1/production/lines", "POST", "prod:line:add");
+    add("/api/v1/production/lines/{id}", "PUT", "prod:line:edit");
+    add("/api/v1/production/lines/{id}", "DELETE", "prod:line:del");
     add("/api/v1/production/lines/{id}/stations", "GET", "prod:station:list");
     add("/api/v1/production/processes", "GET", "prod:process:list");
     add("/api/v1/production/processes", "POST", "prod:process:add");
+    add("/api/v1/production/processes/{id}", "PUT", "prod:process:edit");
+    add("/api/v1/production/processes/{id}", "DELETE", "prod:process:del");
     add("/api/v1/production/products", "GET", "prod:product:list");
     add("/api/v1/production/products", "POST", "prod:product:add");
+    add("/api/v1/production/products/{id}", "PUT", "prod:product:edit");
+    add("/api/v1/production/products/{id}", "DELETE", "prod:product:del");
     add("/api/v1/production/plans", "GET", "prod:plan:list");
     add("/api/v1/production/plans", "POST", "prod:plan:add");
 

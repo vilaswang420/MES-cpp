@@ -107,14 +107,21 @@ INSERT INTO sys_permissions (perm_code, perm_name, perm_type, path, method, stat
  ('prod:wo:complete',    '完工工单',   3, '/api/v1/production/work-orders/{id}/complete',   'PUT',  1),
  ('prod:wo:close',       '关闭工单',   3, '/api/v1/production/work-orders/{id}/close',      'PUT',  1),
  ('prod:wo:report',      '工序报工',   3, '/api/v1/production/work-orders/{id}/report',     'POST', 1),
+ ('prod:wo:cancel',      '取消工单',   3, '/api/v1/production/work-orders/{id}/cancel',     'PUT',  1),
  -- B 域: 产线/工位/工艺/产品/计划 (4.6)
  ('prod:line:list',      '产线列表',   3, '/api/v1/production/lines',                       'GET',  1),
  ('prod:line:add',       '创建产线',   3, '/api/v1/production/lines',                       'POST', 1),
+ ('prod:line:edit',      '编辑产线',   3, '/api/v1/production/lines/{id}',                  'PUT',  1),
+ ('prod:line:del',       '删除产线',   3, '/api/v1/production/lines/{id}',                  'DELETE', 1),
  ('prod:station:list',   '工位列表',   3, '/api/v1/production/lines/{id}/stations',         'GET',  1),
  ('prod:process:list',   '工艺列表',   3, '/api/v1/production/processes',                   'GET',  1),
  ('prod:process:add',    '创建工艺',   3, '/api/v1/production/processes',                   'POST', 1),
+ ('prod:process:edit',   '编辑工艺',   3, '/api/v1/production/processes/{id}',              'PUT',  1),
+ ('prod:process:del',    '删除工艺',   3, '/api/v1/production/processes/{id}',              'DELETE', 1),
  ('prod:product:list',   '产品列表',   3, '/api/v1/production/products',                    'GET',  1),
  ('prod:product:add',    '创建产品',   3, '/api/v1/production/products',                    'POST', 1),
+ ('prod:product:edit',   '编辑产品',   3, '/api/v1/production/products/{id}',               'PUT',  1),
+ ('prod:product:del',    '删除产品',   3, '/api/v1/production/products/{id}',               'DELETE', 1),
  ('prod:plan:list',      '计划列表',   3, '/api/v1/production/plans',                       'GET',  1),
  ('prod:plan:add',       '创建计划',   3, '/api/v1/production/plans',                       'POST', 1),
  -- IoT 域: 设备/传感器/数据/告警/任务 (4.7)
@@ -167,9 +174,10 @@ SELECT r.id, p.id FROM sys_roles r, sys_permissions p
  WHERE r.role_code = 'prod_manager'
    AND p.perm_code IN ('menu:production','menu:prod:wo','menu:prod:plan','menu:prod:based',
        'prod:wo:list','prod:wo:query','prod:wo:add','prod:wo:update','prod:wo:schedule','prod:wo:release',
-       'prod:wo:start','prod:wo:pause','prod:wo:complete','prod:wo:close','prod:wo:report',
-       'prod:line:list','prod:line:add','prod:station:list','prod:process:list',
-       'prod:process:add','prod:product:list','prod:product:add',
+       'prod:wo:start','prod:wo:pause','prod:wo:complete','prod:wo:close','prod:wo:report','prod:wo:cancel',
+       'prod:line:list','prod:line:add','prod:line:edit','prod:line:del','prod:station:list',
+       'prod:process:list','prod:process:add','prod:process:edit','prod:process:del',
+       'prod:product:list','prod:product:add','prod:product:edit','prod:product:del',
        'prod:plan:list','prod:plan:add')
 ON CONFLICT DO NOTHING;
 
