@@ -100,11 +100,10 @@ jobs:
                   find src tests \( -name '*.cc' -o -name '*.hh' \) -print0 | xargs -0 clang-format --dry-run --Werror
             - name: CMake 配置 + 构建
               run: |
-                  # 不依赖 run-vcpkg 注入的 $VCPKG_ROOT (曾出现 cmake 找不到工具链文件的故障),
-                  # 显式使用 $GITHUB_WORKSPACE 拼路径并自检
-                  test -f "$GITHUB_WORKSPACE/vcpkg/vcpkg.cmake" || { echo "::error::vcpkg.cmake 不存在"; ls -la "$GITHUB_WORKSPACE/vcpkg" | head -20; exit 1; }
+                  # 注意: 工具链文件在 vcpkg 仓库的 scripts/buildsystems/ 子目录, 不在根目录
+                  test -f "$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" || { echo "::error::vcpkg.cmake 不存在, VCPKG_ROOT=$VCPKG_ROOT"; ls -R "$VCPKG_ROOT" | head -30; exit 1; }
                   cmake -S hms-backend -B build -G Ninja \
-                    -DCMAKE_TOOLCHAIN_FILE=$GITHUB_WORKSPACE/vcpkg/vcpkg.cmake -DCMAKE_BUILD_TYPE=Release
+                    -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DCMAKE_BUILD_TYPE=Release
                   cmake --build build --parallel
             - name: 单元测试 (状态机/data_scope/JWT)
               run: ./build/hms_unit_tests
@@ -154,7 +153,7 @@ jobs:
                   vcpkgGitCommitId: "ea1a7396b05637a53bf23c078647ecc0edee4b80"
             - name: CMake 配置 + 构建
               run: |
-                  test -f "$GITHUB_WORKSPACE/vcpkg/vcpkg.cmake" || { echo "::error::vcpkg.cmake 不存在"; ls -la "$GITHUB_WORKSPACE/vcpkg" | head -20; exit 1; }
+                  test -f "$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" || { echo "::error::vcpkg.cmake 不存在, VCPKG_ROOT=$VCPKG_ROOT"; ls -R "$VCPKG_ROOT" | head -30; exit 1; }
                   cmake -S hms-iot -B build-iot -G Ninja \
-                    -DCMAKE_TOOLCHAIN_FILE=$GITHUB_WORKSPACE/vcpkg/vcpkg.cmake -DCMAKE_BUILD_TYPE=Release
+                    -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DCMAKE_BUILD_TYPE=Release
                   cmake --build build-iot --parallel
