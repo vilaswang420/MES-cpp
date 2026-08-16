@@ -13,6 +13,7 @@
 #include "common/SqlParam.hh"
 #include "middlewares/perm_routes.hh"
 #include "services/RbacService.hh"
+#include "utils/AuditMask.hh"
 #include "utils/JwtUtils.hh"
 #include "utils/Metrics.hh"
 
@@ -256,10 +257,12 @@ void recordAudit(const drogon::HttpRequestPtr& req, const drogon::HttpResponsePt
         e.username = attrs->get<std::string>("current_username");
     }
     // 请求参数 (GET 取 query, 写操作取 body 摘要), 截断 2KB
+    // P3-4.5: 写操作 body 经 JSON 脱敏 (password/newPassword/oldPassword -> ***),
+    //         登录/改密明文密码不再落库 sys_audit_logs.request_params
     if (method == "GET") {
         e.params = req->query().substr(0, 2048);
     } else {
-        e.params = std::string(req->body()).substr(0, 2048);
+        e.params = AuditMask::maskSensitiveJson(std::string(req->body())).substr(0, 2048);
     }
     if (auto attrs = req->getAttributes(); attrs && attrs->find("req_start_us")) {
         e.durationMs = static_cast<int>((nowUs() - attrs->get<int64_t>("req_start_us")) / 1000);
