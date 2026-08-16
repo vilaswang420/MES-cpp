@@ -9,7 +9,9 @@ add_library(hms_bcrypt STATIC
     src/crypt_gensalt.c
     src/wrapper.c)
 
-target_include_directories(hms_bcrypt PUBLIC include)
+# 注意双 include 路径: 源码平台分支不同 —— Windows 走相对路径 ../include/bcrypt/bcrypt.h,
+# Linux 分支为裸 #include "bcrypt.h"/"ow-crypt.h", 需将 include/bcrypt 加入搜索路径
+target_include_directories(hms_bcrypt PUBLIC include include/bcrypt)
 
 if(MSVC)
     # 第三方 C 源码含 strcpy 等 CRT 安全告警, 不升级告警级别, 仅静默此类警告
