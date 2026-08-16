@@ -86,6 +86,10 @@ jobs:
     backend:
         name: hms-backend 编译 + 单测
         runs-on: ubuntu-latest
+        env:
+            # simpleamqpclient port 仅支持动态链接 ("!static"), 默认 x64-linux 是静态 triplet
+            VCPKG_TARGET_TRIPLET: x64-linux-dynamic
+            VCPKG_DEFAULT_TRIPLET: x64-linux-dynamic
         steps:
             - uses: actions/checkout@v4
             - name: 系统依赖
@@ -106,7 +110,8 @@ jobs:
                     -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DCMAKE_BUILD_TYPE=Release
                   cmake --build build --parallel
             - name: 单元测试 (状态机/data_scope/JWT)
-              run: ./build/hms_unit_tests
+              run: |
+                  LD_LIBRARY_PATH="$GITHUB_WORKSPACE/build/vcpkg_installed/x64-linux-dynamic/lib" ./build/hms_unit_tests
 
     web:
         name: hms-web build + lint
@@ -143,6 +148,10 @@ jobs:
     iot:
         name: hms-iot 编译
         runs-on: ubuntu-latest
+        env:
+            # simpleamqpclient port 仅支持动态链接 ("!static"), 默认 x64-linux 是静态 triplet
+            VCPKG_TARGET_TRIPLET: x64-linux-dynamic
+            VCPKG_DEFAULT_TRIPLET: x64-linux-dynamic
         steps:
             - uses: actions/checkout@v4
             - name: 系统依赖
