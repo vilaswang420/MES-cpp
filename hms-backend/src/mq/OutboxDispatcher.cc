@@ -10,6 +10,7 @@
 
 #include "common/SqlParam.hh"
 #include "mq/MqProducer.hh"
+#include "mq/OutboxPolicy.hh"
 #include "utils/Metrics.hh"
 
 namespace hms::OutboxDispatcher {
@@ -18,7 +19,6 @@ namespace {
 
 constexpr int64_t kAdvisoryLockKey = 0x484D5301; // "HMS" + 投递器编号
 constexpr int kBatchSize = 50;
-constexpr int kMaxRetry = 5;
 
 std::atomic<bool> g_running{false};
 
@@ -61,12 +61,13 @@ drogon::Task<> tick() {
         if (!lock[0][0].as<bool>())
             co_return; // 其他实例正在投递
 
-        // 待投递 + 未超重试上限的失败件
+        // 待投递 + 未超重试上限的失败件 (死信 status=3 不再选中)
         auto rows =
-            co_await trans->execSqlCoro("SELECT id, exchange, routing_key, payload FROM mq_outbox "
+            co_await trans->execSqlCoro("SELECT id, exchange, routing_key, payload, retry_count "
+                                        "FROM mq_outbox "
                                         "WHERE status = 0 OR (status = 2 AND retry_count < $1) "
                                         "ORDER BY created_at LIMIT $2 FOR UPDATE SKIP LOCKED",
-                                        SqlArg(kMaxRetry), SqlArg(kBatchSize));
+                                        SqlArg(OutboxPolicy::kMaxRetry), SqlArg(kBatchSize));
 
         for (const auto& row : rows) {
             auto id = row["id"].as<int64_t>();
@@ -84,11 +85,20 @@ drogon::Task<> tick() {
                     "UPDATE mq_outbox SET status = 1, sent_at = NOW() WHERE id = $1", SqlArg(id));
             } else {
                 Metrics::counterInc("hms_outbox_dispatch_failed_total");
+                // P2-3.3 终态: 重试达到上限 (递增后 >= kMaxRetry) 置死信 status=3, 不再重试;
+                // 行保留供查询/人工介入 (alerts.yml 已补死信监控)。
+                auto newStatus = OutboxPolicy::nextStatusOnFailure(row["retry_count"].as<int>());
                 co_await trans->execSqlCoro(
-                    "UPDATE mq_outbox SET status = 2, retry_count = retry_count + 1 "
+                    "UPDATE mq_outbox SET status = $2, retry_count = retry_count + 1 "
                     "WHERE id = $1",
-                    SqlArg(id));
-                LOG_WARN << "outbox dispatch failed, id=" << id;
+                    SqlArg(id), SqlArg(newStatus));
+                if (newStatus == 3) {
+                    Metrics::counterInc("hms_outbox_dead_total");
+                    LOG_ERROR << "outbox dead-lettered (retry >= " << OutboxPolicy::kMaxRetry
+                              << "), id=" << id;
+                } else {
+                    LOG_WARN << "outbox dispatch failed, id=" << id;
+                }
             }
         }
         // trans 析构 -> 自动提交 (锁随之释放)

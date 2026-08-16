@@ -35,6 +35,14 @@ groups:
         annotations:
           summary: "outbox 待投递 {{ $value }} 条"
 
+      # outbox 死信产生 (P2-3.3): 重试超限置死信, 需人工介入 (MQ 拓扑/契约检查)
+      - alert: OutboxDeadLettering
+        expr: increase(hms_outbox_dead_total[10m]) > 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "outbox 10 分钟内新增死信 {{ $value }} 条 (重试超限, 需人工介入)"
+
   - name: hms_slo
     rules:
       # REST P95 > 369ms (m1 基线×1.3, 与 m2_composite 门禁一致)
