@@ -114,7 +114,7 @@ namespace
     private:
         void loop()
         {
-            Amqp::Channel::ptr_t channel;
+            AmqpClient::Channel::ptr_t channel;
             while (g_running)
             {
                 std::vector<std::string> batch;
@@ -134,16 +134,17 @@ namespace
                 {
                     if (!channel)
                     {
-                        channel = Amqp::Channel::CreateFromUri(url_);
-                        channel->DeclareExchange(exchange_, Amqp::Channel::EXCHANGE_TYPE_TOPIC,
+                        channel = AmqpClient::Channel::CreateFromUri(url_);
+                        channel->DeclareExchange(exchange_,
+                                                 AmqpClient::Channel::EXCHANGE_TYPE_TOPIC,
                                                  true /*passive: 由 topology.json 预声明*/);
                     }
                     for (const auto &payload : batch)
                     {
-                        Amqp::Message msg(payload);
-                        msg.setContentType("application/json");
-                        msg.setDeliveryMode(Amqp::Message::dm_persistent);
-                        channel->PublishMessage(exchange_, routingKey_, msg);
+                        auto msg = AmqpClient::BasicMessage::Create(payload);
+                        msg->ContentType("application/json");
+                        msg->DeliveryMode(AmqpClient::BasicMessage::delivery_mode_t::dm_persistent);
+                        channel->BasicPublish(exchange_, routingKey_, msg);
                     }
                 }
                 catch (const std::exception &e)

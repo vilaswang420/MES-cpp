@@ -1,8 +1,8 @@
 #include "services/OeeService.hh"
 
-#include <drogon/drogon.h>
 #include <SimpleAmqpClient/Channel.h>
 #include <SimpleAmqpClient/Envelope.h>
+#include <drogon/drogon.h>
 
 #include <atomic>
 #include <chrono>
@@ -22,9 +22,9 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 
-constexpr int kRecalcIntervalSec = 30;   // 重算限频
+constexpr int kRecalcIntervalSec = 30;    // 重算限频
 constexpr int64_t kRecalcAfterMsgs = 200; // 消息条数触发提前重算
-constexpr double kMaxGapSec = 60.0;      // run_status 相邻点间隔上限 (断连不累计)
+constexpr double kMaxGapSec = 60.0;       // run_status 相邻点间隔上限 (断连不累计)
 
 std::atomic<bool> g_stop{false};
 std::thread g_thread;
@@ -42,7 +42,8 @@ void recalcAll() {
         "WITH dev_run AS ("
         "  SELECT r.device_id, d.line_id, "
         "         SUM(LEAST(EXTRACT(EPOCH FROM (r.collected_at - "
-        "             LAG(r.collected_at) OVER (PARTITION BY r.device_id ORDER BY r.collected_at))),"
+        "             LAG(r.collected_at) OVER (PARTITION BY r.device_id ORDER BY "
+        "r.collected_at))),"
         "             $1)) AS run_sec "
         "  FROM iot_raw_data r "
         "  JOIN iot_sensors s ON s.id = r.sensor_id AND s.is_key_metric = TRUE "
@@ -109,13 +110,13 @@ void recalcAll() {
                         Metrics::counterInc("hms_oee_recalc_rows_total");
                     },
                     [lineId](const drogon::orm::DrogonDbException& e) {
-                        LOG_WARN << "[oee] upsert line " << lineId << " failed: " << e.base().what();
+                        LOG_WARN << "[oee] upsert line " << lineId
+                                 << " failed: " << e.base().what();
                     },
-                    SqlArg(lineId), SqlArg(shift), SqlArg(in.runSeconds),
-                    SqlArg(in.plannedSeconds), SqlArg(in.reportSeconds), SqlArg(in.passQty),
-                    SqlArg(in.defectQty), SqlArg(res.availability * 100.0),
-                    SqlArg(res.performance * 100.0), SqlArg(res.quality * 100.0),
-                    SqlArg(res.oee * 100.0));
+                    SqlArg(lineId), SqlArg(shift), SqlArg(in.runSeconds), SqlArg(in.plannedSeconds),
+                    SqlArg(in.reportSeconds), SqlArg(in.passQty), SqlArg(in.defectQty),
+                    SqlArg(res.availability * 100.0), SqlArg(res.performance * 100.0),
+                    SqlArg(res.quality * 100.0), SqlArg(res.oee * 100.0));
             }
             if (!r.empty())
                 LOG_DEBUG << "[oee] recalculated " << r.size() << " line-shift rows";
@@ -158,11 +159,10 @@ void start(const nlohmann::json& config) {
                     channel->BasicAck(env); // 消息即触发信号, 立即 ack (重算幂等)
                     ++sinceCalc;
                 }
-                auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(Clock::now() -
-                                                                                lastCalc)
-                                   .count();
-                if (elapsed >= kRecalcIntervalSec ||
-                    (got && sinceCalc >= kRecalcAfterMsgs)) {
+                auto elapsed =
+                    std::chrono::duration_cast<std::chrono::seconds>(Clock::now() - lastCalc)
+                        .count();
+                if (elapsed >= kRecalcIntervalSec || (got && sinceCalc >= kRecalcAfterMsgs)) {
                     recalcAll();
                     lastCalc = Clock::now();
                     sinceCalc = 0;
@@ -172,9 +172,9 @@ void start(const nlohmann::json& config) {
                 channel.reset();
                 tag.clear();
                 // 断连期间仍按限频重算 (数据可能仍在入库)
-                auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(Clock::now() -
-                                                                                lastCalc)
-                                   .count();
+                auto elapsed =
+                    std::chrono::duration_cast<std::chrono::seconds>(Clock::now() - lastCalc)
+                        .count();
                 if (elapsed >= kRecalcIntervalSec) {
                     recalcAll();
                     lastCalc = Clock::now();

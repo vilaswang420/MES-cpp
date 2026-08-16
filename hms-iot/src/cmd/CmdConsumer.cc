@@ -43,13 +43,12 @@ void CmdConsumer::stop() {
 
 void CmdConsumer::consumeLoop() {
     while (running_.load()) {
-        Amqp::Channel::ptr_t channel;
+        AmqpClient::Channel::ptr_t channel;
         try {
-            channel = Amqp::Channel::CreateFromUri(amqpUrl_);
+            channel = AmqpClient::Channel::CreateFromUri(amqpUrl_);
 
             // 声明队列 (passive=true, 由 topology.json 预声明)
-            channel->DeclareQueue(kQueueName, true /*passive*/, false /*durable*/,
-                                  false /*exclusive*/, false /*autoDelete*/);
+            channel->DeclareQueue(kQueueName, true /*passive*/);
             // 绑定 routing keys
             channel->BindQueue(kQueueName, exchange_, kBindStop);
             channel->BindQueue(kQueueName, exchange_, kBindDev);
@@ -62,18 +61,19 @@ void CmdConsumer::consumeLoop() {
             std::cout << "[cmd] consumer started on " << kQueueName << "\n";
 
             while (running_.load()) {
-                Amqp::Envelope::ptr_t env;
+                AmqpClient::Envelope::ptr_t env;
+                bool got = false;
                 try {
                     // 1s 超时, 允许定期检查 running_ 标志
-                    env = channel->BasicConsumeMessage(consumerTag, 1000 /*ms*/);
-                } catch (const Amqp::ConsumerCancelledException&) {
+                    got = channel->BasicConsumeMessage(consumerTag, env, 1000 /*ms*/);
+                } catch (const AmqpClient::ConsumerCancelledException&) {
                     std::cerr << "[cmd] consumer cancelled by broker, reconnecting...\n";
                     break;
                 }
 
-                if (!env) continue; // 超时
+                if (!got || !env) continue; // 超时
 
-                std::string body = env->Message()->body();
+                std::string body = env->Message()->Body();
                 std::string routingKey = env->RoutingKey();
 
                 try {

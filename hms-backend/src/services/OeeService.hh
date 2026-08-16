@@ -44,9 +44,9 @@ inline double clamp01(double v) {
 // - Q 无质检数据 (pass+defect=0) 时按 1.0 计 (无不良记录视为全好, 避免无质检即 OEE=0)
 inline OeeResult computeOee(const OeeInput& in) {
     OeeResult r;
-    r.availability =
-        (in.plannedSeconds > 0 && in.runSeconds > 0) ? clamp01(in.runSeconds / in.plannedSeconds)
-                                                     : 0.0;
+    r.availability = (in.plannedSeconds > 0 && in.runSeconds > 0)
+                         ? clamp01(in.runSeconds / in.plannedSeconds)
+                         : 0.0;
     r.performance = (in.runSeconds > 0 && in.reportSeconds > 0)
                         ? clamp01(in.reportSeconds / in.runSeconds)
                         : 0.0;

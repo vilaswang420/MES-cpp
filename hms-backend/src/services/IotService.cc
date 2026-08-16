@@ -534,9 +534,10 @@ void listAlerts(int page, int pageSize, int status, int level, int64_t deviceId,
                                        : nlohmann::json(row["threshold"].as<double>())},
                      {"message", optStr(row, "message")},
                      {"status", row["status"].as<int>()},
-                     {"acknowledged_by", row["acknowledged_by"].isNull()
-                                             ? nlohmann::json(nullptr)
-                                             : nlohmann::json(row["acknowledged_by"].as<int64_t>())},
+                     {"acknowledged_by",
+                      row["acknowledged_by"].isNull()
+                          ? nlohmann::json(nullptr)
+                          : nlohmann::json(row["acknowledged_by"].as<int64_t>())},
                      {"acknowledged_at", optStr(row, "acknowledged_at")},
                      {"created_at", optStr(row, "created_at")}});
             }

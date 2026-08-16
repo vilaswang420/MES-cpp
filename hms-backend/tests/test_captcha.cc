@@ -69,7 +69,7 @@ TEST(CaptchaTest, SvgDataUriBase64) {
     auto code = cap::generateCode(4);
     auto uri = cap::svgDataUri(code);
     constexpr const char* kPrefix = "data:image/svg+xml;base64,";
-    EXPECT_EQ(uri.rfind(kPrefix, 0), 0u);  // 前缀匹配
+    EXPECT_EQ(uri.rfind(kPrefix, 0), 0u); // 前缀匹配
     // base64 解码后应为合法 svg (含 <svg 与 code 字符)
     auto b64 = uri.substr(std::strlen(kPrefix));
     // 简单 base64 长度校验 (4 的倍数, 以 = 或 == 结尾)
