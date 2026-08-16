@@ -112,13 +112,13 @@ export default function Tasks() {
         {
             title: "操作", width: 220, render: (_: unknown, row: TaskRow) => (
                 <Space>
-                    {hasPerm("iot:task:toggle") && (
+                    {hasPerm("iot:task:update") && (
                         <Popconfirm title={row.enabled ? "停止采集?" : "启动采集?"} onConfirm={() => toggle(row)}>
                             <Button size="small">{row.enabled ? "停止" : "启动"}</Button>
                         </Popconfirm>
                     )}
-                    {hasPerm("iot:task:put") && <Button size="small" onClick={() => openEdit(row)}>编辑</Button>}
-                    {hasPerm("iot:task:del") && (
+                    {hasPerm("iot:task:update") && <Button size="small" onClick={() => openEdit(row)}>编辑</Button>}
+                    {hasPerm("iot:task:delete") && (
                         <Popconfirm title={`删除任务 ${row.task_code}?`} onConfirm={() => remove(row)}>
                             <Button size="small" danger>删除</Button>
                         </Popconfirm>

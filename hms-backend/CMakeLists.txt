@@ -74,6 +74,7 @@ if(HMS_BUILD_TESTS)
         tests/test_service_rules.cc
         tests/test_audit_mask.cc
         tests/test_captcha.cc
+        tests/test_oee_calc.cc
         src/utils/JwtUtils.cc
         src/utils/TimeUtils.cc)
     target_include_directories(hms_unit_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")

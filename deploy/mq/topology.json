@@ -43,6 +43,15 @@
       }
     },
     {
+      "name": "oee.calc.queue",
+      "vhost": "/",
+      "durable": true,
+      "arguments": {
+        "x-dead-letter-exchange": "iot.dlx",
+        "x-dead-letter-routing-key": "dlq.oee"
+      }
+    },
+    {
       "name": "iot.alert.queue",
       "vhost": "/",
       "durable": true,
@@ -91,6 +100,14 @@
       "source": "iot.exchange",
       "vhost": "/",
       "destination": "iot.data.queue",
+      "destination_type": "queue",
+      "routing_key": "data.#",
+      "arguments": {}
+    },
+    {
+      "source": "iot.exchange",
+      "vhost": "/",
+      "destination": "oee.calc.queue",
       "destination_type": "queue",
       "routing_key": "data.#",
       "arguments": {}

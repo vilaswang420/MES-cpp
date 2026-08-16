@@ -20,6 +20,8 @@ class IotController : public drogon::HttpController<IotController> {
     // 传感器
     ADD_METHOD_TO(IotController::listSensors, "/api/v1/iot/devices/{1}/sensors", drogon::Get);
     ADD_METHOD_TO(IotController::addSensor, "/api/v1/iot/devices/{1}/sensors", drogon::Post);
+    ADD_METHOD_TO(IotController::updateSensor, "/api/v1/iot/sensors/{1}", drogon::Put);
+    ADD_METHOD_TO(IotController::deleteSensor, "/api/v1/iot/sensors/{1}", drogon::Delete);
     // 采集数据
     ADD_METHOD_TO(IotController::realtimeData, "/api/v1/iot/devices/{1}/realtime-data",
                   drogon::Get);
@@ -27,6 +29,8 @@ class IotController : public drogon::HttpController<IotController> {
     // 告警
     ADD_METHOD_TO(IotController::listAlerts, "/api/v1/iot/alerts", drogon::Get);
     ADD_METHOD_TO(IotController::ackAlert, "/api/v1/iot/alerts/{1}/acknowledge", drogon::Put);
+    ADD_METHOD_TO(IotController::resolveAlert, "/api/v1/iot/alerts/{1}/resolve", drogon::Put);
+    ADD_METHOD_TO(IotController::dismissAlert, "/api/v1/iot/alerts/{1}/dismiss", drogon::Put);
     // 采集任务
     ADD_METHOD_TO(IotController::listTasks, "/api/v1/iot/tasks", drogon::Get);
     ADD_METHOD_TO(IotController::createTask, "/api/v1/iot/tasks", drogon::Post);
@@ -133,6 +137,35 @@ class IotController : public drogon::HttpController<IotController> {
         auto traceId = traceIdOf(req);
         IotService::acknowledgeAlert(id, userCtxOf(req).userId, notNullCb(callback, traceId),
                                      errCb(callback, traceId));
+    }
+
+    void resolveAlert(const drogon::HttpRequestPtr& req,
+                      std::function<void(const drogon::HttpResponsePtr&)>&& callback, int64_t id) {
+        auto traceId = traceIdOf(req);
+        IotService::resolveAlert(id, userCtxOf(req).userId, notNullCb(callback, traceId),
+                                 errCb(callback, traceId));
+    }
+
+    void dismissAlert(const drogon::HttpRequestPtr& req,
+                      std::function<void(const drogon::HttpResponsePtr&)>&& callback, int64_t id) {
+        auto traceId = traceIdOf(req);
+        IotService::dismissAlert(id, userCtxOf(req).userId, notNullCb(callback, traceId),
+                                 errCb(callback, traceId));
+    }
+
+    void updateSensor(const drogon::HttpRequestPtr& req,
+                      std::function<void(const drogon::HttpResponsePtr&)>&& callback, int64_t id) {
+        auto traceId = traceIdOf(req);
+        auto body = bodyJson(req);
+        if (body.is_null())
+            return callback(ApiResponse::error(400, "请求体必须是 JSON", traceId));
+        IotService::updateSensor(id, body, notNullCb(callback, traceId), errCb(callback, traceId));
+    }
+
+    void deleteSensor(const drogon::HttpRequestPtr& req,
+                      std::function<void(const drogon::HttpResponsePtr&)>&& callback, int64_t id) {
+        auto traceId = traceIdOf(req);
+        IotService::deleteSensor(id, notNullCb(callback, traceId), errCb(callback, traceId));
     }
 
     void listTasks(const drogon::HttpRequestPtr& req,

@@ -60,6 +60,7 @@ export default function Devices() {
     const [detail, setDetail] = useState<DeviceRow | null>(null);
     const [sensors, setSensors] = useState<SensorRow[]>([]);
     const [sensorModalOpen, setSensorModalOpen] = useState(false);
+    const [editingSensor, setEditingSensor] = useState<SensorRow | null>(null);
     const [form] = Form.useForm();
     const [sensorForm] = Form.useForm();
 
@@ -132,20 +133,49 @@ export default function Devices() {
     }
 
     function openAddSensor() {
+        setEditingSensor(null);
         sensorForm.resetFields();
         sensorForm.setFieldsValue({ data_type: "float", scale_factor: 1.0, sample_interval: 1000, is_key_metric: false });
         setSensorModalOpen(true);
+    }
+
+    function openEditSensor(row: SensorRow) {
+        setEditingSensor(row);
+        sensorForm.setFieldsValue(row);
+        setSensorModalOpen(true);
+    }
+
+    async function reloadSensors() {
+        if (!detail) return;
+        const s = await http.get<{ list: SensorRow[] }>(`/iot/devices/${detail.id}/sensors`);
+        setSensors(s.list ?? []);
     }
 
     async function submitSensor() {
         if (!detail) return;
         const values = await sensorForm.validateFields();
         try {
-            await http.post(`/iot/devices/${detail.id}/sensors`, values);
-            message.success("传感器添加成功");
+            if (editingSensor) {
+                // 编辑: 不传 sensor_code (后端部分更新, code 不可改)
+                const { sensor_code: _sc, ...rest } = values;
+                await http.put(`/iot/sensors/${editingSensor.id}`, rest);
+                message.success("传感器更新成功");
+            } else {
+                await http.post(`/iot/devices/${detail.id}/sensors`, values);
+                message.success("传感器添加成功");
+            }
             setSensorModalOpen(false);
-            const s = await http.get<{ list: SensorRow[] }>(`/iot/devices/${detail.id}/sensors`);
-            setSensors(s.list ?? []);
+            await reloadSensors();
+        } catch (e) {
+            message.error((e as Error).message);
+        }
+    }
+
+    async function removeSensor(row: SensorRow) {
+        try {
+            await http.del(`/iot/sensors/${row.id}`);
+            message.success("传感器已删除");
+            await reloadSensors();
         } catch (e) {
             message.error((e as Error).message);
         }
@@ -166,8 +196,8 @@ export default function Devices() {
             title: "操作", width: 200, render: (_: unknown, row: DeviceRow) => (
                 <Space>
                     <Button size="small" onClick={() => openDetail(row)}>详情</Button>
-                    {hasPerm("iot:device:put") && <Button size="small" onClick={() => openEdit(row)}>编辑</Button>}
-                    {hasPerm("iot:device:del") && (
+                    {hasPerm("iot:device:update") && <Button size="small" onClick={() => openEdit(row)}>编辑</Button>}
+                    {hasPerm("iot:device:delete") && (
                         <Popconfirm title={`删除设备 ${row.device_code}?`} onConfirm={() => remove(row)}>
                             <Button size="small" danger>删除</Button>
                         </Popconfirm>
@@ -186,7 +216,25 @@ export default function Devices() {
         { title: "告警下限", dataIndex: "alarm_low", width: 80, render: (v: number | null) => v ?? "-" },
         { title: "告警上限", dataIndex: "alarm_high", width: 80, render: (v: number | null) => v ?? "-" },
         { title: "采样间隔", dataIndex: "sample_interval", width: 90, render: (v: number) => `${v}ms` },
-        { title: "关键指标", dataIndex: "is_key_metric", width: 80, render: (v: boolean) => v ? <Tag color="gold">是</Tag> : "-" }
+        { title: "关键指标", dataIndex: "is_key_metric", width: 80, render: (v: boolean) => v ? <Tag color="gold">是</Tag> : "-" },
+        {
+            title: "操作", width: 130, render: (_: unknown, row: SensorRow) => (
+                <Space>
+                    {hasPerm("iot:sensor:update") && (
+                        <Button size="small" onClick={() => openEditSensor(row)}>编辑</Button>
+                    )}
+                    {hasPerm("iot:sensor:delete") && (
+                        <Popconfirm
+                            title={`删除传感器 ${row.sensor_code}?`}
+                            description="关键指标/近期有数据的传感器将被后端拒绝"
+                            onConfirm={() => removeSensor(row)}
+                        >
+                            <Button size="small" danger>删除</Button>
+                        </Popconfirm>
+                    )}
+                </Space>
+            )
+        }
     ];
 
     return (
@@ -275,7 +323,7 @@ export default function Devices() {
                                 label: `传感器 (${sensors.length})`,
                                 children: (
                                     <div>
-                                        {hasPerm("iot:device:add") && (
+                                        {hasPerm("iot:sensor:add") && (
                                             <Button type="primary" size="small" style={{ marginBottom: 12 }} onClick={openAddSensor}>
                                                 添加传感器
                                             </Button>
@@ -297,7 +345,7 @@ export default function Devices() {
             </Drawer>
 
             <Modal
-                title="添加传感器"
+                title={editingSensor ? `编辑传感器 - ${editingSensor.sensor_code}` : "添加传感器"}
                 open={sensorModalOpen}
                 onOk={submitSensor}
                 onCancel={() => setSensorModalOpen(false)}
@@ -305,7 +353,7 @@ export default function Devices() {
             >
                 <Form form={sensorForm} layout="vertical">
                     <Form.Item name="sensor_code" label="传感器编码" rules={[{ required: true }]}>
-                        <Input />
+                        <Input disabled={!!editingSensor} />
                     </Form.Item>
                     <Form.Item name="sensor_name" label="传感器名称" rules={[{ required: true }]}>
                         <Input />

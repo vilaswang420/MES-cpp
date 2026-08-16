@@ -1,17 +1,26 @@
-<!-- OEE 仪表盘占位: 当前显示 yield_rate (合格率) 作为 OEE 替代。
-     5.4 真 OEE 消费者落地后, 替换为 A×P×Q 三因子计算结果。 -->
+<!-- OEE 仪表盘: 5.4 真 OEE 消费者落地后, 优先展示 A×P×Q 三因子结果 (prod_oee_stats)。
+     后端未计算出 OEE (null) 时回退显示 yield_rate (合格率), 并标注 "(yield)"。 -->
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useChart, type EChartsOption } from "../composables/useChart";
 
 const props = defineProps<{
     yieldRate: number;
+    oee?: number | null;
+    availability?: number | null;
+    performance?: number | null;
+    quality?: number | null;
 }>();
+
+const isRealOee = computed(
+    () => typeof props.oee === "number" && Number.isFinite(props.oee),
+);
 
 const chartEl = ref<HTMLElement | null>(null);
 
 const option = computed<EChartsOption>(() => {
-    const val = Number(props.yieldRate.toFixed(1));
+    const raw = isRealOee.value ? (props.oee as number) : props.yieldRate;
+    const val = Number(Math.min(100, Math.max(0, raw)).toFixed(1));
     return {
         backgroundColor: "transparent",
         series: [
@@ -71,18 +80,41 @@ const option = computed<EChartsOption>(() => {
                     fontSize: 28,
                     fontWeight: 700,
                 },
-                data: [{ value: val, name: "OEE (yield)" }],
+                data: [
+                    {
+                        value: val,
+                        name: isRealOee.value ? "OEE" : "OEE (yield)",
+                    },
+                ],
             },
         ],
     };
 });
 
 useChart(chartEl, option);
+
+const fmtPct = (v?: number | null) =>
+    typeof v === "number" && Number.isFinite(v) ? `${v.toFixed(1)}%` : "—";
 </script>
 
 <template>
     <div class="gauge-container">
         <div ref="chartEl" class="gauge-el"></div>
+        <!-- 三因子明细: A 时间稼动率 / P 性能稼动率 / Q 质量指数 (真 OEE 时展示) -->
+        <div v-if="isRealOee" class="factors">
+            <div class="factor">
+                <span class="f-label">A</span>
+                <span class="f-val">{{ fmtPct(availability) }}</span>
+            </div>
+            <div class="factor">
+                <span class="f-label">P</span>
+                <span class="f-val">{{ fmtPct(performance) }}</span>
+            </div>
+            <div class="factor">
+                <span class="f-label">Q</span>
+                <span class="f-val">{{ fmtPct(quality) }}</span>
+            </div>
+        </div>
     </div>
 </template>
 
@@ -93,10 +125,33 @@ useChart(chartEl, option);
     display: flex;
     align-items: center;
     justify-content: center;
+    position: relative;
 }
 .gauge-el {
     width: 100%;
     height: 100%;
     min-height: 200px;
+}
+.factors {
+    position: absolute;
+    bottom: 2px;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: center;
+    gap: 18px;
+    font-size: 11px;
+}
+.factor {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+}
+.f-label {
+    color: #7c8db5;
+    font-weight: 600;
+}
+.f-val {
+    color: #dbe6ff;
 }
 </style>

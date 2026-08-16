@@ -1,8 +1,8 @@
-// IoT 告警管理 (P4-5.5): 列表 + 确认/消除/忽略
-// 告警状态: 0=未处理 1=已确认 2=已消除 3=已忽略
+// IoT 告警管理 (P4-5.5 + 5.7): 列表 + 确认/消除/忽略
+// 告警状态机: 0=未处理 →(ack) 1=已确认 →(resolve) 2=已消除; 0/1 →(dismiss) 3=已忽略
 // 告警级别: 1=warning 2=critical
 import { useCallback, useEffect, useState } from "react";
-import { Table, Button, Space, Tag, Select, message } from "antd";
+import { Table, Button, Space, Tag, Select, message, Popconfirm } from "antd";
 import { http } from "../../utils/request";
 import { useAuth } from "../../store/auth";
 
@@ -17,6 +17,7 @@ interface AlertRow {
     threshold: number | null;
     message: string;
     status: number;
+    acknowledged_by: number | null;
     acknowledged_at: string | null;
     created_at: string;
 }
@@ -72,6 +73,26 @@ export default function Alerts() {
         }
     }
 
+    async function resolve(row: AlertRow) {
+        try {
+            await http.put(`/iot/alerts/${row.id}/resolve`);
+            message.success("告警已消除");
+            load();
+        } catch (e) {
+            message.error((e as Error).message);
+        }
+    }
+
+    async function dismiss(row: AlertRow) {
+        try {
+            await http.put(`/iot/alerts/${row.id}/dismiss`);
+            message.success("告警已忽略");
+            load();
+        } catch (e) {
+            message.error((e as Error).message);
+        }
+    }
+
     const columns = [
         { title: "ID", dataIndex: "id", width: 70 },
         { title: "设备", dataIndex: "device_name", width: 140 },
@@ -90,10 +111,20 @@ export default function Alerts() {
         { title: "确认时间", dataIndex: "acknowledged_at", width: 170, render: (v: string | null) => v ?? "-" },
         { title: "触发时间", dataIndex: "created_at", width: 170 },
         {
-            title: "操作", width: 100, render: (_: unknown, row: AlertRow) => (
+            title: "操作", width: 220, render: (_: unknown, row: AlertRow) => (
                 <Space>
-                    {row.status === 0 && hasPerm("iot:alert:ack") && (
+                    {row.status === 0 && hasPerm("iot:alert:handle") && (
                         <Button size="small" type="primary" onClick={() => ack(row)}>确认</Button>
+                    )}
+                    {row.status === 1 && hasPerm("iot:alert:resolve") && (
+                        <Popconfirm title="标记该告警为已消除?" onConfirm={() => resolve(row)}>
+                            <Button size="small" type="primary" ghost>消除</Button>
+                        </Popconfirm>
+                    )}
+                    {(row.status === 0 || row.status === 1) && hasPerm("iot:alert:dismiss") && (
+                        <Popconfirm title="忽略该告警 (误报场景)?" onConfirm={() => dismiss(row)}>
+                            <Button size="small" danger ghost>忽略</Button>
+                        </Popconfirm>
                     )}
                 </Space>
             )

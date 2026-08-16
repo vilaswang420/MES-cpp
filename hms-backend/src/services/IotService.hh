@@ -26,6 +26,8 @@ void deviceStatus(int64_t id, JsonCb onOk, ErrCb onErr);
 // ---- 传感器 ----
 void listSensors(int64_t deviceId, JsonCb onOk, ErrCb onErr);
 void addSensor(int64_t deviceId, const nlohmann::json& body, JsonCb onOk, ErrCb onErr);
+void updateSensor(int64_t id, const nlohmann::json& body, JsonCb onOk, ErrCb onErr);
+void deleteSensor(int64_t id, JsonCb onOk, ErrCb onErr); // 软删; 被 OEE 引用/近期有数据 -> 409
 
 // ---- 采集数据 ----
 void realtimeData(int64_t deviceId, JsonCb onOk, ErrCb onErr);
@@ -35,7 +37,9 @@ void sensorHistory(int64_t sensorId, const std::string& startTime, const std::st
 // ---- 告警 ----
 void listAlerts(int page, int pageSize, int status, int level, int64_t deviceId, JsonCb onOk,
                 ErrCb onErr);
-void acknowledgeAlert(int64_t id, int64_t userId, JsonCb onOk, ErrCb onErr);
+void acknowledgeAlert(int64_t id, int64_t userId, JsonCb onOk, ErrCb onErr); // 0 -> 1
+void resolveAlert(int64_t id, int64_t userId, JsonCb onOk, ErrCb onErr);     // 1 -> 2 消除
+void dismissAlert(int64_t id, int64_t userId, JsonCb onOk, ErrCb onErr);     // 0,1 -> 3 忽略
 
 // ---- 指令下发 ----
 void sendCommand(int64_t deviceId, const nlohmann::json& body, JsonCb onOk, ErrCb onErr);

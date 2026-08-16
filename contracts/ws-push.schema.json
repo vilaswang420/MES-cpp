@@ -117,7 +117,7 @@
     "$defs": {
         "payloadProductionRealtime": {
             "type": "object",
-            "description": "production.realtime 载荷: 进行中工单 (status=3) 实时快照, 1Hz 推送。yield_rate 为完工率 (good_qty/plan_qty*100); 真 OEE (可用率×性能×良率) 见计划 5.4",
+            "description": "production.realtime 载荷: 进行中工单 (status=3) 实时快照, 1Hz 推送。yield_rate 为完工率 (good_qty/plan_qty*100); 真 OEE 三因子 (availability/performance/quality/oee, P4-5.4) 为当日 prod_oee_stats 聚合, 可选字段 (无数据为 null)",
             "required": [
                 "line_id",
                 "line_name",
@@ -173,6 +173,30 @@
                     "minimum": 0,
                     "maximum": 100,
                     "description": "完工率百分比 = good_qty/plan_qty*100; 命名避免与真 OEE 混淆 (2.3)"
+                },
+                "availability": {
+                    "type": ["number", "null"],
+                    "minimum": 0,
+                    "maximum": 100,
+                    "description": "真 OEE 可用率 A (P4-5.4, ISO 22400): 运行时间/计划生产时间, 百分比; 当日无 prod_oee_stats 记录时为 null"
+                },
+                "performance": {
+                    "type": ["number", "null"],
+                    "minimum": 0,
+                    "maximum": 100,
+                    "description": "真 OEE 表现性 P (P4-5.4): Σ(报工量×理想节拍)/运行时间, 百分比; 无数据时为 null"
+                },
+                "quality": {
+                    "type": ["number", "null"],
+                    "minimum": 0,
+                    "maximum": 100,
+                    "description": "真 OEE 质量率 Q (P4-5.4): 质检合格率, 百分比; 无数据时为 null"
+                },
+                "oee": {
+                    "type": ["number", "null"],
+                    "minimum": 0,
+                    "maximum": 100,
+                    "description": "真 OEE = A×P×Q (P4-5.4), 百分比; 大屏无数据时降级显示 yield_rate"
                 },
                 "status": {
                     "type": "integer",

@@ -13,6 +13,7 @@
 #include "mq/MqProducer.hh"
 #include "mq/OutboxDispatcher.hh"
 #include "mq/StopCollectionHandler.hh"
+#include "services/OeeService.hh"
 #include "utils/JwtUtils.hh"
 #include "websocket/WsBroadcastManager.hh"
 
@@ -75,6 +76,7 @@ int main(int argc, char** argv) {
         hms::DataIngestHandler::start(mqCfg);     // IoT 数据入库 (任务 19)
         hms::AlertHandler::start(mqCfg);          // 告警落库+广播 (任务 19)
         hms::StopCollectionHandler::start(mqCfg); // 停采二次投递: stop_collection -> cmd.stop.{id}
+        hms::OeeService::start(mqCfg);            // 真 OEE 消费者: oee.calc.queue -> prod_oee_stats (P4-5.4)
         hms::DeviceMonitor::start();              // 心跳离线判定: 60s 超时置离线+OFFLINE 告警
         hms::WsBroadcastManager::start();         // WS 广播: Redis 订阅+合并推送 (任务 21)
         hms::startAuditFlusher();                 // 审计批量刷盘
@@ -87,6 +89,7 @@ int main(int argc, char** argv) {
     hms::DataIngestHandler::stop();
     hms::AlertHandler::stop();
     hms::StopCollectionHandler::stop();
+    hms::OeeService::stop();
     hms::WsBroadcastManager::stop();
     hms::MetricsCollector::stop();
     hms::MqProducer::shutdown();

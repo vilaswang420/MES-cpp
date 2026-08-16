@@ -73,7 +73,7 @@ void refreshSensorCache() {
     auto db = drogon::app().getDbClient();
     db->execSqlAsync(
         "SELECT device_id, id AS sensor_id, alarm_low, alarm_high, alarm_low_low, "
-        "alarm_high_high FROM iot_sensors WHERE status = 1",
+        "alarm_high_high FROM iot_sensors WHERE status = 1 AND deleted = FALSE",
         [](const drogon::orm::Result& r) {
             auto m = std::make_shared<SensorMap>();
             for (const auto& row : r) {

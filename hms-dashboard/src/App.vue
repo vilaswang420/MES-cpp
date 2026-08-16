@@ -20,6 +20,11 @@ interface ProductionRealtime {
     good_qty: number;
     defect_qty: number;
     yield_rate: number;
+    // 5.4 真 OEE: 后端 prod_oee_stats 计算结果 (0-100), 无数据时为 null (回退 yield_rate)
+    availability?: number | null;
+    performance?: number | null;
+    quality?: number | null;
+    oee?: number | null;
     status: number;
     timestamp: string;
 }
@@ -174,7 +179,13 @@ watch(p1.degraded, (d) => {
             </section>
             <section class="panel panel-oee">
                 <h2>OEE 仪表盘</h2>
-                <OeeGauge :yield-rate="currentProduction?.yield_rate ?? 0" />
+                <OeeGauge
+                    :yield-rate="currentProduction?.yield_rate ?? 0"
+                    :oee="currentProduction?.oee ?? null"
+                    :availability="currentProduction?.availability ?? null"
+                    :performance="currentProduction?.performance ?? null"
+                    :quality="currentProduction?.quality ?? null"
+                />
             </section>
             <section class="panel panel-quality">
                 <h2>质量趋势 (30s 轮询)</h2>

@@ -88,15 +88,18 @@ const std::string kInstanceId = [] {
 
 // 实时推送查询: 1Hz 查询进行中工单 (status=3) 并推送
 // (多实例: 仅 leader 抢占成功后推送, 经 Redis Pub/Sub 分发到各实例)
+// P4-5.4: LEFT JOIN prod_oee_stats 带出真 OEE 三因子 (当日聚合, 无数据时为 null)
 void queryAndPushRealtime() {
     auto db = drogon::app().getDbClient();
     db->execSqlAsync(
         "SELECT wo.work_order_no, wo.line_id, COALESCE(l.line_name,'') AS line_name, "
         "COALESCE(p.product_name,'') AS product_name, wo.plan_qty, wo.completed_qty, "
-        "wo.good_qty, wo.defect_qty, wo.status "
+        "wo.good_qty, wo.defect_qty, wo.status, "
+        "os.availability, os.performance, os.quality, os.oee "
         "FROM prod_work_orders wo "
         "LEFT JOIN prod_production_lines l ON l.id = wo.line_id "
         "LEFT JOIN prod_products p ON p.id = wo.product_id "
+        "LEFT JOIN prod_oee_stats os ON os.line_id = wo.line_id AND os.stat_date = CURRENT_DATE "
         "WHERE wo.status = 3 ORDER BY wo.updated_at DESC LIMIT 20",
         [](const drogon::orm::Result& r) {
             for (const auto& row : r) {
@@ -115,8 +118,21 @@ void queryAndPushRealtime() {
                     {"completed_qty", completedQty},
                     {"good_qty", goodQty},
                     {"defect_qty", defectQty},
-                    // 完工率 (yield_rate): good_qty/plan_qty*100; 真 OEE 见 5.4 (MQ 消费者)
+                    // 完工率 (yield_rate): good_qty/plan_qty*100
                     {"yield_rate", planQty > 0 ? goodQty * 100.0 / planQty : 0.0},
+                    // 真 OEE 三因子 (P4-5.4, ISO 22400): 当日 prod_oee_stats 聚合,
+                    // 无 run_status 传感器/无计划时为 null (大屏降级显示 yield_rate)
+                    {"availability", row["availability"].isNull()
+                                         ? nlohmann::json(nullptr)
+                                         : nlohmann::json(row["availability"].as<double>())},
+                    {"performance", row["performance"].isNull()
+                                        ? nlohmann::json(nullptr)
+                                        : nlohmann::json(row["performance"].as<double>())},
+                    {"quality", row["quality"].isNull()
+                                    ? nlohmann::json(nullptr)
+                                    : nlohmann::json(row["quality"].as<double>())},
+                    {"oee", row["oee"].isNull() ? nlohmann::json(nullptr)
+                                                : nlohmann::json(row["oee"].as<double>())},
                     {"status", status},
                     {"timestamp", TimeUtils::nowUtcIso()}};
                 publish("production.realtime", payload);

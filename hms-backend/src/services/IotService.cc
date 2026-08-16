@@ -152,7 +152,7 @@ void getDevice(int64_t id, JsonCb onOk, ErrCb onErr) {
         std::string("SELECT ") + kDeviceBaseCols +
             ", d.connection_config, "
             "(SELECT COALESCE(json_agg(s.* ORDER BY s.id), '[]'::json) FROM iot_sensors s "
-            " WHERE s.device_id = d.id) AS sensors "
+            " WHERE s.device_id = d.id AND s.deleted = FALSE) AS sensors "
             "FROM iot_devices d LEFT JOIN iot_device_types t ON t.id = d.type_id "
             "WHERE d.id = $1 AND d.deleted = FALSE",
         [onOk](const drogon::orm::Result& r) {
@@ -289,7 +289,7 @@ void listSensors(int64_t deviceId, JsonCb onOk, ErrCb onErr) {
     db->execSqlAsync(
         "SELECT id, device_id, sensor_code, sensor_name, data_type, unit, register_addr, "
         "min_value, max_value, alarm_low, alarm_high, sample_interval, is_key_metric, status "
-        "FROM iot_sensors WHERE device_id = $1 ORDER BY id",
+        "FROM iot_sensors WHERE device_id = $1 AND deleted = FALSE ORDER BY id",
         [onOk](const drogon::orm::Result& r) {
             nlohmann::json arr = nlohmann::json::array();
             for (const auto& row : r)
@@ -331,6 +331,73 @@ void addSensor(int64_t deviceId, const nlohmann::json& body, JsonCb onOk, ErrCb 
         SqlArg(body.value("sample_interval", 1000)), SqlArg(body.value("is_key_metric", false)));
 }
 
+// 传感器编辑 (部分更新: 未传/空值字段保留原值, COALESCE 模式与 updateDevice 一致)
+void updateSensor(int64_t id, const nlohmann::json& body, JsonCb onOk, ErrCb onErr) {
+    auto db = drogon::app().getDbClient();
+    db->execSqlAsync(
+        "UPDATE iot_sensors SET "
+        "sensor_name = COALESCE(NULLIF($2,''), sensor_name), "
+        "unit = COALESCE(NULLIF($3,''), unit), "
+        "register_addr = COALESCE(NULLIF($4,''), register_addr), "
+        "scale_factor = COALESCE(NULLIF($5::numeric, 0), scale_factor), "
+        "addr_offset = CASE WHEN $6::numeric IS NULL THEN addr_offset ELSE $6::numeric END, "
+        "min_value = COALESCE($7::numeric, min_value), "
+        "max_value = COALESCE($8::numeric, max_value), "
+        "alarm_low = COALESCE($9::numeric, alarm_low), "
+        "alarm_high = COALESCE($10::numeric, alarm_high), "
+        "alarm_low_low = COALESCE($11::numeric, alarm_low_low), "
+        "alarm_high_high = COALESCE($12::numeric, alarm_high_high), "
+        "sample_interval = CASE WHEN $13 > 0 THEN $13 ELSE sample_interval END, "
+        "is_key_metric = COALESCE($14::boolean, is_key_metric), "
+        "status = CASE WHEN $15 >= 0 THEN $15::smallint ELSE status END "
+        "WHERE id = $1 AND deleted = FALSE RETURNING id",
+        [id, onOk](const drogon::orm::Result& r) {
+            onOk(r.empty() ? nlohmann::json(nullptr) : nlohmann::json{{"id", id}});
+        },
+        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); },
+        SqlArg(id), body.value("sensor_name", ""), body.value("unit", ""),
+        body.value("register_addr", ""), SqlArg(body.value("scale_factor", 0.0)),
+        body.contains("addr_offset") ? SqlArg(body["addr_offset"].get<double>()) : SqlArgNull(),
+        body.contains("min_value") ? SqlArg(body["min_value"].get<double>()) : SqlArgNull(),
+        body.contains("max_value") ? SqlArg(body["max_value"].get<double>()) : SqlArgNull(),
+        body.contains("alarm_low") ? SqlArg(body["alarm_low"].get<double>()) : SqlArgNull(),
+        body.contains("alarm_high") ? SqlArg(body["alarm_high"].get<double>()) : SqlArgNull(),
+        body.contains("alarm_low_low") ? SqlArg(body["alarm_low_low"].get<double>()) : SqlArgNull(),
+        body.contains("alarm_high_high") ? SqlArg(body["alarm_high_high"].get<double>())
+                                         : SqlArgNull(),
+        SqlArg(body.value("sample_interval", 0)),
+        body.contains("is_key_metric") ? SqlArg(body["is_key_metric"].get<bool>()) : SqlArgNull(),
+        SqlArg(body.value("status", -1)));
+}
+
+// 传感器软删: 关键指标 (OEE run_status 依赖) 或近 24h 仍有采集数据 -> 409 拒绝
+void deleteSensor(int64_t id, JsonCb onOk, ErrCb onErr) {
+    auto db = drogon::app().getDbClient();
+    db->execSqlAsync(
+        "SELECT s.is_key_metric, "
+        "EXISTS(SELECT 1 FROM iot_raw_data r WHERE r.sensor_id = s.id "
+        "       AND r.collected_at > NOW() - INTERVAL '24 hours') AS has_recent_data "
+        "FROM iot_sensors s WHERE s.id = $1 AND s.deleted = FALSE",
+        [id, onOk, onErr](const drogon::orm::Result& r) {
+            if (r.empty())
+                return onOk(nullptr); // controller 转 404
+            if (r[0]["is_key_metric"].as<bool>())
+                return onErr(409, "关键指标传感器 (is_key_metric) 被 OEE 计算引用, 禁止删除");
+            if (r[0]["has_recent_data"].as<bool>())
+                return onErr(409, "传感器近 24 小时仍有采集数据, 禁止删除");
+            auto db2 = drogon::app().getDbClient();
+            db2->execSqlAsync(
+                "UPDATE iot_sensors SET deleted = TRUE, status = 0 WHERE id = $1 RETURNING id",
+                [id, onOk](const drogon::orm::Result& rr) {
+                    onOk(rr.empty() ? nlohmann::json(nullptr) : nlohmann::json{{"id", id}});
+                },
+                [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); },
+                SqlArg(id));
+        },
+        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); },
+        SqlArg(id));
+}
+
 // ============ 采集数据 ============
 
 void realtimeData(int64_t deviceId, JsonCb onOk, ErrCb onErr) {
@@ -339,7 +406,7 @@ void realtimeData(int64_t deviceId, JsonCb onOk, ErrCb onErr) {
     db->execSqlAsync(
         "SELECT DISTINCT ON (r.sensor_id) s.sensor_code, s.sensor_name, s.unit, r.value_num, "
         "r.value_str, r.quality, r.collected_at "
-        "FROM iot_raw_data r JOIN iot_sensors s ON s.id = r.sensor_id "
+        "FROM iot_raw_data r JOIN iot_sensors s ON s.id = r.sensor_id AND s.deleted = FALSE "
         "WHERE r.device_id = $1 AND r.collected_at > NOW() - INTERVAL '24 hours' "
         "ORDER BY r.sensor_id, r.collected_at DESC",
         [deviceId, onOk](const drogon::orm::Result& r) {
@@ -371,7 +438,8 @@ void sensorHistory(int64_t sensorId, const std::string& startTime, const std::st
     auto db = drogon::app().getDbClient();
     // 时间桶聚合 + 区间统计两条查询; 桶秒数作为参数避免拼接
     db->execSqlAsync(
-        "SELECT s.sensor_name, s.unit FROM iot_sensors s WHERE s.id = $1",
+        "SELECT s.sensor_name, s.unit FROM iot_sensors s "
+        "WHERE s.id = $1 AND s.deleted = FALSE",
         [sensorId, startTime, endTime, step, aggFn, onOk, onErr](const drogon::orm::Result& meta) {
             if (meta.empty())
                 return onOk(nullptr);
@@ -466,6 +534,9 @@ void listAlerts(int page, int pageSize, int status, int level, int64_t deviceId,
                                        : nlohmann::json(row["threshold"].as<double>())},
                      {"message", optStr(row, "message")},
                      {"status", row["status"].as<int>()},
+                     {"acknowledged_by", row["acknowledged_by"].isNull()
+                                             ? nlohmann::json(nullptr)
+                                             : nlohmann::json(row["acknowledged_by"].as<int64_t>())},
                      {"acknowledged_at", optStr(row, "acknowledged_at")},
                      {"created_at", optStr(row, "created_at")}});
             }
@@ -492,6 +563,40 @@ void acknowledgeAlert(int64_t id, int64_t userId, JsonCb onOk, ErrCb onErr) {
             if (r.empty())
                 return onOk(nullptr); // 不存在或已被处理 -> 404
             onOk({{"id", id}, {"status", 1}});
+        },
+        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); },
+        SqlArg(id), SqlArg(userId));
+}
+
+// 告警消除: 已确认(1) -> 已消除(2), 记录 resolved_at; 操作人补 acknowledged_by (幂等保留首人)
+void resolveAlert(int64_t id, int64_t userId, JsonCb onOk, ErrCb onErr) {
+    auto db = drogon::app().getDbClient();
+    db->execSqlAsync(
+        "UPDATE iot_alerts SET status = 2, resolved_at = NOW(), "
+        "acknowledged_by = COALESCE(acknowledged_by, $2), "
+        "acknowledged_at = COALESCE(acknowledged_at, NOW()) "
+        "WHERE id = $1 AND status = 1 RETURNING id",
+        [id, onOk](const drogon::orm::Result& r) {
+            if (r.empty())
+                return onOk(nullptr); // 仅已确认状态可消除 -> 404
+            onOk({{"id", id}, {"status", 2}});
+        },
+        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); },
+        SqlArg(id), SqlArg(userId));
+}
+
+// 告警忽略: 未处理(0)/已确认(1) -> 已忽略(3); 误报告警快速关闭通道
+void dismissAlert(int64_t id, int64_t userId, JsonCb onOk, ErrCb onErr) {
+    auto db = drogon::app().getDbClient();
+    db->execSqlAsync(
+        "UPDATE iot_alerts SET status = 3, "
+        "acknowledged_by = COALESCE(acknowledged_by, $2), "
+        "acknowledged_at = COALESCE(acknowledged_at, NOW()) "
+        "WHERE id = $1 AND status IN (0, 1) RETURNING id",
+        [id, onOk](const drogon::orm::Result& r) {
+            if (r.empty())
+                return onOk(nullptr); // 已消除/已忽略不可再操作 -> 404
+            onOk({{"id", id}, {"status", 3}});
         },
         [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); },
         SqlArg(id), SqlArg(userId));

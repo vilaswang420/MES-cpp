@@ -71,7 +71,7 @@ export default function WmsOps() {
                     <Form.Item name="json_body" label="入库请求 JSON" rules={[{ required: true }]}>
                         <TextArea rows={6} placeholder='{"product_code": "P001", "qty": 500, "warehouse": "W01"}' />
                     </Form.Item>
-                    {hasPerm("integ:wms:stockin") && (
+                    {hasPerm("integ:wms:inbound") && (
                         <Button type="primary" loading={loading === "stock"} onClick={doStockIn}>发送入库请求</Button>
                     )}
                 </Form>

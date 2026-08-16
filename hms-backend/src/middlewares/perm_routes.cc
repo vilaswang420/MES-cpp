@@ -142,10 +142,14 @@ void init() {
     add("/api/v1/iot/devices/{id}/status", "GET", "iot:device:query");
     add("/api/v1/iot/devices/{id}/sensors", "GET", "iot:sensor:list");
     add("/api/v1/iot/devices/{id}/sensors", "POST", "iot:sensor:add");
+    add("/api/v1/iot/sensors/{id}", "PUT", "iot:sensor:update");
+    add("/api/v1/iot/sensors/{id}", "DELETE", "iot:sensor:delete");
     add("/api/v1/iot/devices/{id}/realtime-data", "GET", "iot:data:query");
     add("/api/v1/iot/sensors/{id}/history", "GET", "iot:data:query");
     add("/api/v1/iot/alerts", "GET", "iot:alert:list");
     add("/api/v1/iot/alerts/{id}/acknowledge", "PUT", "iot:alert:handle");
+    add("/api/v1/iot/alerts/{id}/resolve", "PUT", "iot:alert:resolve");
+    add("/api/v1/iot/alerts/{id}/dismiss", "PUT", "iot:alert:dismiss");
     add("/api/v1/iot/devices/{id}/command", "POST", "iot:device:command");
     add("/api/v1/iot/tasks", "GET", "iot:task:list");
     add("/api/v1/iot/tasks", "POST", "iot:task:add");
