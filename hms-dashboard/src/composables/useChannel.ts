@@ -2,7 +2,8 @@
 // 订阅协议: 连接建立后发送 {"action":"subscribe","channel":...};
 // 推送信封 {version,channel,ts,payload}; 断线自动重连 (指数退避上限 30s)。
 // 鉴权: 后端 /ws 以 query token 严格校验 (浏览器 WS 无法带 Authorization 头),
-// token 优先读 localStorage.hms_ws_token, 否则用大屏专用账号自动登录获取。
+// token 优先读 localStorage.hms_ws_token, 否则用环境变量注入账号自动登录获取。
+// P3-4.4: 弱默认凭据 (admin/password) 已移除, 部署时必须设置 VITE_DASH_USER/PWD。
 import { onUnmounted, ref } from "vue";
 
 export interface WsPushMessage {
@@ -19,18 +20,25 @@ const API_BASE = (import.meta.env.VITE_API_BASE as string) ?? "";
 
 let tokenPromise: Promise<string> | null = null;
 
-// 获取 WS 接入 token: localStorage 覆盖 > 自动登录 (失败返回空串, 连接将被后端拒绝并重连)
+// 获取 WS 接入 token: localStorage 覆盖 > 环境变量注入账号自动登录。
+// P3-4.4: 移除硬编码 admin/password 弱默认凭据 (不打进 bundle);
+// VITE_DASH_USER / VITE_DASH_PWD 必须在部署时注入, 否则返回空串 (降级模式)。
 export function acquireToken(): Promise<string> {
     const cached = localStorage.getItem("hms_ws_token");
     if (cached) return Promise.resolve(cached);
+
+    const user = import.meta.env.VITE_DASH_USER as string | undefined;
+    const pwd = import.meta.env.VITE_DASH_PWD as string | undefined;
+    if (!user || !pwd) {
+        // 无凭据 → WS 无法鉴权 → 降级模式 (REST 轮询)
+        return Promise.resolve("");
+    }
+
     if (!tokenPromise) {
         tokenPromise = fetch(`${API_BASE}/api/v1/auth/login`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                username: (import.meta.env.VITE_DASH_USER as string) ?? "admin",
-                password: (import.meta.env.VITE_DASH_PWD as string) ?? "password",
-            }),
+            body: JSON.stringify({ username: user, password: pwd }),
         })
             .then((r) => r.json())
             .then((j) => (j.code === 200 ? String(j.data.access_token) : ""))
