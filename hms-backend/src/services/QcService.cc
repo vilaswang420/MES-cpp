@@ -361,19 +361,18 @@ void handleDefect(int64_t id, const nlohmann::json& body, int64_t userId, JsonCb
 
     auto db = drogon::app().getDbClient();
     db->execSqlAsync(
-        "UPDATE qc_defects SET disposition = $2, "
+        "UPDATE qc_defects SET disposition = $2, disposition_by = $5, disposition_at = NOW(), "
         "root_cause = COALESCE(NULLIF($3, ''), root_cause), "
         "corrective_action = COALESCE(NULLIF($4, ''), corrective_action) "
         "WHERE id = $1 AND disposition = 0 RETURNING id",
-        [id, disposition, onOk](const drogon::orm::Result& r) {
+        [id, disposition, userId, onOk](const drogon::orm::Result& r) {
             if (r.empty())
                 return onOk(nullptr); // 不存在或已处置 -> 404
-            onOk({{"id", id}, {"disposition", disposition}});
+            onOk({{"id", id}, {"disposition", disposition}, {"disposition_by", userId}});
         },
         [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); },
         SqlArg(id), SqlArg(disposition), body.value("root_cause", ""),
-        body.value("corrective_action", ""));
-    (void)userId;
+        body.value("corrective_action", ""), SqlArg(userId));
 }
 
 // ============ 统计 ============
