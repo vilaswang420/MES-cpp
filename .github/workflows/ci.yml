@@ -93,7 +93,13 @@ jobs:
         steps:
             - uses: actions/checkout@v4
             - name: 系统依赖
-              run: sudo apt-get update && sudo apt-get install -y cmake ninja-build libssl-dev zlib1g-dev libjsoncpp-dev uuid-dev clang-format
+              run: sudo apt-get update && sudo apt-get install -y cmake ninja-build libssl-dev zlib1g-dev libjsoncpp-dev uuid-dev clang-format g++-14
+            - name: 选择 GCC 14
+              # gcc-13 对 C++20 协程存在 internal compiler error (build_special_member_call),
+              # IntegrationService.cc saga 协程析构路径触发; gcc-14 已修复
+              run: |
+                  echo "CC=gcc-14" >> "$GITHUB_ENV"
+                  echo "CXX=g++-14" >> "$GITHUB_ENV"
             - name: vcpkg 构建 (drogon/jwt-cpp/bcrypt/simpleamqpclient/gtest)
               uses: lukka/run-vcpkg@v11
               with:
