@@ -192,7 +192,8 @@ int main(int argc, char **argv)
 
     // TODO(M2 任务 18): epoll 事件循环 + Modbus TCP worker 线程池;
     // 每设备按 poll_interval_ms 轮询, 采集线程就地 scale/校验后 publisher.enqueue();
-    // TODO(M2 任务 19): 消费 cmd.# 停采指令并暂停对应设备轮询。
+    // TODO(M2 任务 19): 消费 iot.cmd.collector.queue (cmd.stop.# 停采 / cmd.dev.# 设备指令,
+    // 见 deploy/mq/topology.json) 并暂停/恢复对应设备轮询。
     std::cout << "[hms-iot] skeleton started; collectors pending M2 implementation\n";
 
     while (g_running)

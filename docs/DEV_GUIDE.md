@@ -322,7 +322,7 @@ drogon::Task<Json::Value> MyService::doSomething(int64_t id) {
 
         // MQ 消息通过 Outbox 投递 (事务内禁止直接发 MQ)
         co_await OutboxService::enqueue(trans, "iot.exchange",
-            "cmd." + std::to_string(deviceId), payload);
+            "cmd.dev." + std::to_string(deviceId), payload);
 
         // 显式提交并等待 (drogon Transaction 析构才异步 COMMIT)
         co_await commitAwait(std::move(trans));
@@ -533,10 +533,12 @@ just migrate-roundtrip  # 或: powershell -File scripts/test-migrate-roundtrip.p
 
 ```
 iot.exchange (topic)
-├── data.#    → iot.data.queue   (数据入库消费)
-├── alert.#   → iot.alert.queue  (告警处理消费)
-├── cmd.#     → iot.cmd.queue    (指令下发消费)
-└── retry.data → iot.retry.queue (TTL 10s → 回 iot.exchange)
+├── data.#           → iot.data.queue            (数据入库消费)
+├── alert.#          → iot.alert.queue           (告警处理消费)
+├── cmd.stop_collection → iot.cmd.queue          (后端 StopCollectionHandler 二次投递, 精确 key 防回环)
+├── cmd.stop.#       → iot.cmd.collector.queue   (停采指令, hms-iot 独占消费)
+├── cmd.dev.#        → iot.cmd.collector.queue   (设备指令, hms-iot 独占消费)
+└── retry.data       → iot.retry.queue           (TTL 10s → 回 iot.exchange)
 
 iot.dlx (fanout)
 └── (all)     → iot.dlq           (死信最终归宿)

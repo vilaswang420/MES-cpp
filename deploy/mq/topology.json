@@ -61,6 +61,15 @@
       }
     },
     {
+      "name": "iot.cmd.collector.queue",
+      "vhost": "/",
+      "durable": true,
+      "arguments": {
+        "x-dead-letter-exchange": "iot.dlx",
+        "x-dead-letter-routing-key": "dlq.cmd.stop"
+      }
+    },
+    {
       "name": "iot.retry.queue",
       "vhost": "/",
       "durable": true,
@@ -99,7 +108,23 @@
       "vhost": "/",
       "destination": "iot.cmd.queue",
       "destination_type": "queue",
-      "routing_key": "cmd.#",
+      "routing_key": "cmd.stop_collection",
+      "arguments": {}
+    },
+    {
+      "source": "iot.exchange",
+      "vhost": "/",
+      "destination": "iot.cmd.collector.queue",
+      "destination_type": "queue",
+      "routing_key": "cmd.stop.#",
+      "arguments": {}
+    },
+    {
+      "source": "iot.exchange",
+      "vhost": "/",
+      "destination": "iot.cmd.collector.queue",
+      "destination_type": "queue",
+      "routing_key": "cmd.dev.#",
       "arguments": {}
     },
     {

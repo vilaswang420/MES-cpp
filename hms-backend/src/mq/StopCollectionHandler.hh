@@ -2,8 +2,11 @@
 
 #include <nlohmann/json.hpp>
 
-// 停采指令消费端 (计划任务 15): MVP 阶段日志占位。
-// M2 起接入真实停采逻辑 (经 iot.cmd.queue 下发至 hms-iot)。
+// 停采指令消费端 (计划任务 15): P1-2.2 停采二次投递。
+// 消费 iot.cmd.queue 的 stop_collection 消息 -> 查工单绑定设备 (line_id 关联)
+// -> 逐台写 mq_outbox (routing_key=cmd.stop.{device_id}),
+// 由 OutboxDispatcher 投递到 iot.exchange, hms-iot 经 cmd.stop.#
+// (iot.cmd.collector.queue) 独占消费。
 namespace hms::StopCollectionHandler {
 
 // 启动消费线程 (main.cc 调用一次, 传入 rabbitmq.json 配置);

@@ -292,7 +292,7 @@
 | OPC-UA 采集 | 设计文档定义 | — |
 | MQTT 网桥 | 设计文档定义 | — |
 | epoll 事件循环 | 标记为 TODO | — |
-| 停采指令消费 (cmd.# 队列) | 标记为 TODO | 后端发 cmd 后无人消费 |
+| 停采指令消费 (iot.cmd.collector.queue) | 后端二次投递已实现 (P1-2.2), IoT 端消费 TODO | 后端发 cmd 后无人消费 (待 5.1 IoT 消费者上线) |
 | publisher confirms 批量确认 | vcpkg SimpleAmqpClient 无 confirm API | 由 outbox 重投保证一致性 |
 
 > **当前替代方案**: Python 模拟器 `scripts/iot_simulator.py` 可发模拟数据, 覆盖联调需求。

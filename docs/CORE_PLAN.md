@@ -92,7 +92,7 @@
 | 现状 | 工单报工满量 → 写 `mq_outbox` → 投递到 `iot.cmd.queue` → 消费者仅打日志 → **设备继续采集** |
 | 影响 | 完工后设备仍采集，数据持续入池、产生无主数据与无效告警 |
 | 技术方案 | 后端：`StopCollectionHandler` 解析消息体（work_order_id）→ 查该工单绑定设备（工单→line_id→iot_devices.line_id）→ 逐台向 `iot.exchange/cmd.stop.{device_id}` 发停采指令（复用 `MqProducer`，消息体含 device_id + 幂等键 work_order_id+device_id）；IoT：新增独立消费者（见拓扑变更），收到停采指令后暂停对应设备轮询 |
-| 拓扑变更（评审修正） | topology.json **新增 `iot.cmd.collector.queue`**（binding `cmd.stop.#` → hms-iot 独占消费）。原因：现 `cmd.#` 绑唯一 `iot.cmd.queue`，后端 StopCollectionHandler 与 IoT 消费者会 round-robin 竞争，消息可能被任一方独占。后端 StopCollectionHandler 保持消费 `iot.cmd.queue`，IoT 独占新队列 |
+| 拓扑变更（评审修正） | topology.json **新增 `iot.cmd.collector.queue`**（binding `cmd.stop.#` + `cmd.dev.#` → hms-iot 独占消费）。原因：现 `cmd.#` 绑唯一 `iot.cmd.queue`，后端 StopCollectionHandler 与 IoT 消费者会 round-robin 竞争，消息可能被任一方独占。**实现补强（P1-2.2）**：`iot.cmd.queue` 绑定从 `cmd.#` 收紧为精确 `cmd.stop_collection`——否则后端二次投递的 `cmd.stop.{device_id}` 会匹配 `cmd.#` 回环进自身队列造成无限循环；同时 `IotService` 设备指令 routing key 由 `cmd.{device_id}` 改为 `cmd.dev.{device_id}`（并入 collector 队列），并在 handler 内加 relayed-key 防御性 ack |
 | 实施计划 | ① 后端实现停采指令二次投递（先打点可观测，IoT 消费者未上线前不丢消息）；② topology.json 变更 + compose 同步；③ IoT 实现指令消费与轮询暂停/恢复（随 5.1）；④ E2E：建单→开工→报满→断言设备停止上报 |
 | 验收标准 | ① 工单完工 2s 内目标设备停止上报；② 重启后设备恢复采集；③ 幂等：重复停采指令不报错；④ 消息不被错误竞争消费（独立队列验证） |
 

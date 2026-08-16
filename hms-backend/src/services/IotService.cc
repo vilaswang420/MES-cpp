@@ -527,7 +527,7 @@ void sendCommand(int64_t deviceId, const nlohmann::json& body, JsonCb onOk, ErrC
                     onOk({{"device_id", deviceId}, {"queued", true}});
                 },
                 [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); },
-                "iot.exchange", "cmd." + std::to_string(deviceId), msg.dump());
+                "iot.exchange", "cmd.dev." + std::to_string(deviceId), msg.dump());
         },
         [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); },
         SqlArg(deviceId));
