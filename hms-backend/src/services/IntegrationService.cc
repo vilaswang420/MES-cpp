@@ -4,6 +4,7 @@
 #include <drogon/HttpAppFramework.h>
 #include <drogon/utils/coroutine.h>
 
+#include <cctype>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -11,7 +12,10 @@
 
 #include "common/ApiResponse.hh"
 #include "common/SqlParam.hh"
+#include "models/WorkOrderStateMachine.hh"
+#include "mq/OutboxDispatcher.hh"
 #include "utils/CircuitBreaker.hh"
+#include "utils/TimeUtils.hh"
 
 // ERP/WMS 集成实现 (计划任务 23)。
 // 外呼链路: 熔断器 -> drogon HttpClient (sendRequestCoro) -> 记 integ_sync_logs;
@@ -28,6 +32,24 @@ struct ApiConfig {
     int timeoutMs = 10000;
     int retryCount = 3;
 };
+
+// URL 查询参数编码 (RFC 3986): 保留字符除外全部 percent-encode
+// (syncErpOrders 的日期/订单参数可能含空格/特殊字符, 直接拼接会破坏请求)
+std::string urlEncode(const std::string& s) {
+    static const char* hex = "0123456789ABCDEF";
+    std::string out;
+    out.reserve(s.size() * 3);
+    for (unsigned char c : s) {
+        if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+            out += static_cast<char>(c);
+        } else {
+            out += '%';
+            out += hex[c >> 4];
+            out += hex[c & 0x0F];
+        }
+    }
+    return out;
+}
 
 // 外呼结果 (不抛异常, 由调用方决定补偿/响应)
 struct ExtResult {
@@ -54,7 +76,7 @@ CircuitBreaker& breakerOf(const std::string& systemType) {
 drogon::Task<std::optional<ApiConfig>> loadConfig(const std::string& systemType) {
     auto db = drogon::app().getDbClient();
     auto r = co_await db->execSqlCoro(
-        "SELECT id, base_url, COALESCE(token_key, ''), timeout_ms, retry_count "
+        "SELECT id, base_url, COALESCE(token_key, '') AS token_key, timeout_ms, retry_count "
         "FROM integ_api_configs WHERE system_type = $1 AND enabled = TRUE LIMIT 1",
         systemType);
     if (r.empty())
@@ -62,7 +84,7 @@ drogon::Task<std::optional<ApiConfig>> loadConfig(const std::string& systemType)
     ApiConfig c;
     c.id = r[0]["id"].as<int64_t>();
     c.baseUrl = r[0]["base_url"].as<std::string>();
-    c.token = r[0]["coalesce"].as<std::string>();
+    c.token = r[0]["token_key"].as<std::string>();
     c.timeoutMs = r[0]["timeout_ms"].as<int>();
     c.retryCount = r[0]["retry_count"].as<int>();
     co_return c;
@@ -174,8 +196,8 @@ drogon::Task<nlohmann::json> syncErpOrders(const nlohmann::json& body) {
         throw BadRequest("start_date 与 end_date 必填");
     auto orderType = body.value("order_type", 1);
 
-    auto path = std::string("/erp/orders?start_date=") + startDate + "&end_date=" + endDate +
-                "&order_type=" + std::to_string(orderType);
+    auto path = std::string("/erp/orders?start_date=") + urlEncode(startDate) +
+                "&end_date=" + urlEncode(endDate) + "&order_type=" + std::to_string(orderType);
     auto r = co_await callExternal(cfg, "ERP", "GET", path, nullptr);
     if (!r.ok)
         co_await failExternal("ERP", 1, "sync_orders", 0, std::string("GET ") + path, "", r);
@@ -257,13 +279,14 @@ drogon::Task<nlohmann::json> convertErpOrder(int64_t orderId,
 drogon::Task<nlohmann::json> reportCompletionSaga(int64_t workOrderId) {
     auto db = drogon::app().getDbClient();
     auto rows = co_await db->execSqlCoro(
-        "SELECT wo.id, wo.work_order_no, wo.status, wo.completed_qty, p.product_code "
+        "SELECT wo.id, wo.work_order_no, wo.status, wo.completed_qty, wo.product_id, "
+        "p.product_code "
         "FROM prod_work_orders wo LEFT JOIN prod_products p ON p.id = wo.product_id "
         "WHERE wo.id = $1",
         SqlArg(workOrderId));
     if (rows.empty())
         throw NotFound("工单不存在");
-    if (rows[0]["status"].as<int>() != 3)
+    if (rows[0]["status"].as<int>() != WorkOrderStateMachine::kInProgress)
         throw Conflict("仅进行中的工单可触发完工回报 Saga");
     auto woNo = rows[0]["work_order_no"].as<std::string>();
     auto completedQty = rows[0]["completed_qty"].isNull() ? 0 : rows[0]["completed_qty"].as<int>();
@@ -271,18 +294,33 @@ drogon::Task<nlohmann::json> reportCompletionSaga(int64_t workOrderId) {
                                                         : rows[0]["product_code"].as<std::string>();
 
     // T1: 本地事务置完工 (补偿: 回滚为进行中)
+    // 与正常完工路径 (report 满量自动完工) 保持一致:
+    // 走 3->5 状态机语义、写 actual_end_at、事务内写 stop_collection outbox
     auto trans = co_await db->newTransactionCoro();
     auto t1 = co_await trans->execSqlCoro(
-        "UPDATE prod_work_orders SET status = 5, updated_at = NOW() WHERE id = $1 AND status = 3",
-        SqlArg(workOrderId));
+        "UPDATE prod_work_orders SET status = $1, "
+        "actual_end_at = COALESCE(actual_end_at, NOW()), updated_at = NOW() "
+        "WHERE id = $2 AND status = $3",
+        SqlArg(static_cast<int>(WorkOrderStateMachine::kCompleted)), SqlArg(workOrderId),
+        SqlArg(static_cast<int>(WorkOrderStateMachine::kInProgress)));
     if (t1.affectedRows() == 0)
         throw Conflict("工单状态已变化, Saga 终止");
+    nlohmann::json msg;
+    msg["version"] = "1.0";
+    msg["type"] = "stop_collection";
+    msg["work_order_id"] = workOrderId;
+    msg["work_order_no"] = woNo;
+    msg["product_id"] = rows[0]["product_id"].isNull() ? 0 : rows[0]["product_id"].as<int64_t>();
+    msg["timestamp"] = TimeUtils::nowUtcIso();
+    co_await trans->execSqlCoro(OutboxService::kEnqueueSql, "iot.exchange",
+                                "cmd.stop_collection", msg.dump());
     co_await commitAwait(std::move(trans));
 
     auto rollbackT1 = [&]() -> drogon::Task<> {
         try {
             co_await drogon::app().getDbClient()->execSqlCoro(
-                "UPDATE prod_work_orders SET status = 3, updated_at = NOW() WHERE id = $1",
+                "UPDATE prod_work_orders SET status = $1, updated_at = NOW() WHERE id = $2",
+                SqlArg(static_cast<int>(WorkOrderStateMachine::kInProgress)),
                 SqlArg(workOrderId));
         } catch (const std::exception& e) {
             LOG_ERROR << "[integ] saga T1 补偿失败, 需人工介入 wo=" << workOrderId << ": "
@@ -415,39 +453,23 @@ drogon::Task<nlohmann::json> listLogs(int page, int pageSize, const std::string&
     auto db = drogon::app().getDbClient();
 
     auto offset = (int64_t)(page - 1) * pageSize;
-    // 仅 ERP/WMS 两系统, 参数固定 -> 免动态 SQL 拼接
-    if (systemType == "ERP" || systemType == "WMS") {
-        auto cntRow = co_await db->execSqlCoro(
-            "SELECT COUNT(*) AS cnt FROM integ_sync_logs WHERE system_type = $1",
-            systemType);
-        auto total = cntRow[0]["cnt"].as<int64_t>();
-        auto rows = co_await db->execSqlCoro(
-            "SELECT id, system_type, sync_direction, sync_type, business_id, request_url, "
-            "http_status, duration_ms, status, retry_count, error_msg, created_at "
-            "FROM integ_sync_logs WHERE system_type = $1 ORDER BY id DESC "
-            "LIMIT $2 OFFSET $3",
-            systemType, SqlArg(pageSize), SqlArg(offset));
-        co_return nlohmann::json{{"total", total}, {"list", logArr(rows)}};
-    }
-    if (status >= 0 && status <= 2) {
-        auto cntRow = co_await db->execSqlCoro(
-            "SELECT COUNT(*) AS cnt FROM integ_sync_logs WHERE status = $1", SqlArg(status));
-        auto total = cntRow[0]["cnt"].as<int64_t>();
-        auto rows = co_await db->execSqlCoro(
-            "SELECT id, system_type, sync_direction, sync_type, business_id, request_url, "
-            "http_status, duration_ms, status, retry_count, error_msg, created_at "
-            "FROM integ_sync_logs WHERE status = $1 ORDER BY id DESC "
-            "LIMIT $2 OFFSET $3",
-            SqlArg(status), SqlArg(pageSize), SqlArg(offset));
-        co_return nlohmann::json{{"total", total}, {"list", logArr(rows)}};
-    }
-    auto cntRow = co_await db->execSqlCoro("SELECT COUNT(*) AS cnt FROM integ_sync_logs");
+    // NULL 哨兵动态过滤: 固定 SQL 零拼接, systemType/status 任意组合均生效
+    // (历史实现两个独立 if 分支, systemType=ERP 时 status 过滤被跳过)
+    auto typeArg = (systemType == "ERP" || systemType == "WMS") ? SqlArg(systemType)
+                                                                : SqlArgNull();
+    auto statusArg = (status >= 0 && status <= 2) ? SqlArg(status) : SqlArgNull();
+    auto cntRow = co_await db->execSqlCoro(
+        "SELECT COUNT(*) AS cnt FROM integ_sync_logs "
+        "WHERE ($1::text IS NULL OR system_type = $1) AND ($2::int IS NULL OR status = $2)",
+        typeArg, statusArg);
     auto total = cntRow[0]["cnt"].as<int64_t>();
     auto rows = co_await db->execSqlCoro(
         "SELECT id, system_type, sync_direction, sync_type, business_id, request_url, "
         "http_status, duration_ms, status, retry_count, error_msg, created_at "
-        "FROM integ_sync_logs ORDER BY id DESC LIMIT $1 OFFSET $2",
-        SqlArg(pageSize), SqlArg(offset));
+        "FROM integ_sync_logs "
+        "WHERE ($1::text IS NULL OR system_type = $1) AND ($2::int IS NULL OR status = $2) "
+        "ORDER BY id DESC LIMIT $3 OFFSET $4",
+        typeArg, statusArg, SqlArg(pageSize), SqlArg(offset));
     co_return nlohmann::json{{"total", total}, {"list", logArr(rows)}};
 }
 
