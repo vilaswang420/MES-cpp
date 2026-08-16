@@ -155,6 +155,8 @@
 | 修改采集任务 | PUT | `/api/v1/iot/tasks/{id}` | ✅ | — |
 | 删除采集任务 | DELETE | `/api/v1/iot/tasks/{id}` | ✅ | — |
 | 启停采集任务 | PUT | `/api/v1/iot/tasks/{id}/toggle` | ✅ | — |
+| 设备心跳写入 | 内部 | 上报刷新 `last_heartbeat_at` + 置在线 | ✅ P1-2.9A | DataIngestHandler 批次内去重一条 UPDATE |
+| 离线判定 | 内部 | 心跳超时 60s 置离线 + OFFLINE 告警落库 | ✅ P1-2.9A | DeviceMonitor 10s 扫描, 多实例原子去重 |
 
 ### 2.8 质量管理 (7 接口)
 

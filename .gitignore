@@ -43,5 +43,8 @@ deploy/nginx/certs/
 tmp_*
 *.bak
 
+# 本地开发工具 (clang-format 等 pip --target 安装)
+.tools/
+
 # 历史遗留截图 (已从仓库移除, 勿再提交)
 hms_dashboard_alert_check.png

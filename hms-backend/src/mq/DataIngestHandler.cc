@@ -304,7 +304,15 @@ void flushBatch(std::vector<Row>& rows, std::vector<AmqpClient::Envelope::Delive
         std::unordered_map<int64_t, size_t> seen;
         for (size_t i = 0; i < latest.size(); ++i)
             seen[latest[i].first] = i; // 同设备取批内最后一条
+        // P1-2.9A 心跳: 批次内 distinct 设备一条 UPDATE 刷新 last_heartbeat_at 并置在线
+        // (恢复上报即重新在线; 离线判定见 DeviceMonitor)
+        std::string ids = "{";
+        bool firstId = true;
         for (const auto& [devId, idx] : seen) {
+            if (!firstId)
+                ids += ",";
+            firstId = false;
+            ids += std::to_string(devId);
             const auto& r = latest[idx].second;
             nlohmann::json v = {{"device_id", r.deviceId},
                                 {"device_code", r.deviceCode},
@@ -322,6 +330,16 @@ void flushBatch(std::vector<Row>& rows, std::vector<AmqpClient::Envelope::Delive
                                   [](const drogon::nosql::RedisException&) {},
                                   "PUBLISH ws:broadcast:device.status %s", payload.c_str());
         }
+        ids += "}";
+        auto hbDb = drogon::app().getDbClient();
+        hbDb->execSqlAsync(
+            "UPDATE iot_devices SET last_heartbeat_at = NOW(), status = 1 "
+            "WHERE id = ANY($1::bigint[]) AND deleted = FALSE",
+            [](const drogon::orm::Result&) {},
+            [](const drogon::orm::DrogonDbException& e) {
+                LOG_WARN << "[ingest] heartbeat update failed: " << e.base().what();
+            },
+            ids);
         static std::atomic<int64_t> ingested{0};
         auto total = ingested.fetch_add(static_cast<int64_t>(count)) + static_cast<int64_t>(count);
         if (total % 5000 < static_cast<int64_t>(count))

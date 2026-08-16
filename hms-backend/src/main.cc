@@ -9,6 +9,7 @@
 #include "middlewares/perm_routes.hh"
 #include "mq/AlertHandler.hh"
 #include "mq/DataIngestHandler.hh"
+#include "mq/DeviceMonitor.hh"
 #include "mq/MqProducer.hh"
 #include "mq/OutboxDispatcher.hh"
 #include "mq/StopCollectionHandler.hh"
@@ -74,6 +75,7 @@ int main(int argc, char** argv) {
         hms::DataIngestHandler::start(mqCfg);     // IoT 数据入库 (任务 19)
         hms::AlertHandler::start(mqCfg);          // 告警落库+广播 (任务 19)
         hms::StopCollectionHandler::start(mqCfg); // 停采二次投递: stop_collection -> cmd.stop.{id}
+        hms::DeviceMonitor::start();              // 心跳离线判定: 60s 超时置离线+OFFLINE 告警
         hms::WsBroadcastManager::start();         // WS 广播: Redis 订阅+合并推送 (任务 21)
         hms::startAuditFlusher();                 // 审计批量刷盘
         hms::MetricsCollector::start();           // Prometheus 指标采集 (任务 28)
