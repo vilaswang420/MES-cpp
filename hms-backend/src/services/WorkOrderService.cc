@@ -195,7 +195,7 @@ drogon::Task<nlohmann::json> detail(int64_t id, const UserCtx& ctx) {
 
     auto ops = co_await db->execSqlCoro(
         "SELECT id, step_seq, step_name, plan_qty, completed_qty, good_qty, defect_qty, "
-        "operator_id, status, workstation_id FROM prod_work_order_operations "
+        "scrap_qty, operator_id, status, workstation_id FROM prod_work_order_operations "
         "WHERE work_order_id = $1 ORDER BY step_seq",
         SqlArg(id));
     nlohmann::json opArr = nlohmann::json::array();
@@ -208,6 +208,7 @@ drogon::Task<nlohmann::json> detail(int64_t id, const UserCtx& ctx) {
             {"completed_qty", op["completed_qty"].as<int>()},
             {"good_qty", op["good_qty"].as<int>()},
             {"defect_qty", op["defect_qty"].as<int>()},
+            {"scrap_qty", op["scrap_qty"].as<int>()},
             {"operator_id", op["operator_id"].isNull() ? 0 : op["operator_id"].as<int64_t>()},
             {"status", op["status"].as<int>()},
             {"workstation_id",
@@ -386,7 +387,7 @@ drogon::Task<nlohmann::json> report(int64_t id, const nlohmann::json& body, cons
         "WITH op AS ("
         "  UPDATE prod_work_order_operations SET "
         "    completed_qty = completed_qty + $1, good_qty = good_qty + $2, "
-        "    defect_qty = defect_qty + $3, operator_id = $4, "
+        "    defect_qty = defect_qty + $3, scrap_qty = scrap_qty + $5, operator_id = $4, "
         "    status = CASE WHEN completed_qty + $1 >= plan_qty THEN 2 ELSE 1 END, "
         "    actual_start_at = COALESCE(actual_start_at, NOW()), "
         "    actual_end_at = CASE WHEN completed_qty + $1 >= plan_qty THEN NOW() "

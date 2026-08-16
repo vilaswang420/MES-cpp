@@ -109,7 +109,7 @@
 | 暂停 | PUT | `/api/v1/production/work-orders/{id}/pause` | ✅ | 状态 3→4 |
 | 完工 | PUT | `/api/v1/production/work-orders/{id}/complete` | ✅ | 状态 3→5 |
 | 关闭 | PUT | `/api/v1/production/work-orders/{id}/close` | ✅ | 状态 5→6 |
-| 工序报工 | POST | `/api/v1/production/work-orders/{id}/report` | ✅ | 并发超报防护 (FOR UPDATE) |
+| 工序报工 | POST | `/api/v1/production/work-orders/{id}/report` | ✅ | 并发超报防护 (FOR UPDATE); P2-2.11h 工序级 scrap_qty 累计 |
 | 产线列表 | GET | `/api/v1/production/lines` | ✅ | — |
 | 新增产线 | POST | `/api/v1/production/lines` | ✅ | — |
 | 工位列表 | GET | `/api/v1/production/lines/{id}/stations` | ✅ | — |
