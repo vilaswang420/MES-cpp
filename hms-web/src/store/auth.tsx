@@ -13,7 +13,11 @@ export interface SessionUser {
 
 interface AuthState {
     user: SessionUser | null;
-    login: (username: string, password: string) => Promise<void>;
+    login: (
+        username: string,
+        password: string,
+        captcha?: { captcha_id: string; captcha_code: string }
+    ) => Promise<void>;
     logout: () => Promise<void>;
     hasPerm: (code: string) => boolean;
 }
@@ -28,12 +32,17 @@ function loadUser(): SessionUser | null {
 export function AuthProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<SessionUser | null>(loadUser);
 
-    async function login(username: string, password: string) {
+    async function login(
+        username: string,
+        password: string,
+        captcha?: { captcha_id: string; captcha_code: string }
+    ) {
+        // P3-4.1: captcha 可选 (dev 缺省; 生产开关开启后必传)
         const data = await http.post<{
             access_token: string;
             refresh_token: string;
             user: SessionUser;
-        }>("/auth/login", { username, password });
+        }>("/auth/login", { username, password, ...captcha });
         localStorage.setItem("hms_access_token", data.access_token);
         localStorage.setItem("hms_refresh_token", data.refresh_token);
         localStorage.setItem("hms_user", JSON.stringify(data.user));

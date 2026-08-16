@@ -9,6 +9,7 @@
 
 #include "common/SqlParam.hh"
 #include "services/RbacService.hh"
+#include "utils/Captcha.hh"
 #include "utils/CpuOffload.hh"
 #include "utils/CryptoUtils.hh"
 #include "utils/JwtUtils.hh"
@@ -157,12 +158,14 @@ void login(const nlohmann::json& body, const std::string& clientIp, JsonCb onOk,
         rdb->execCommandAsync(
             [username, password, captchaId, captchaCode, clientIp, onOk,
              onErr](const drogon::nosql::RedisResult& result) mutable {
-                auto stored = result.asString();
+                auto storedHash = result.asString();
+                // 一次一用: 无论成败立即删除 (P3-4.1: GET 即 DEL 语义保持)
                 auto rdb2 = drogon::app().getRedisClient();
                 rdb2->execCommandAsync([](const drogon::nosql::RedisResult&) {},
                                        [](const drogon::nosql::RedisException&) {},
                                        "DEL captcha:%s", captchaId.c_str());
-                if (stored.empty() || stored != captchaCode)
+                // P3-4.1: Redis 存 hash, 校验大小写不敏感 (Captcha::verifyCode)
+                if (storedHash.empty() || !Captcha::verifyCode(captchaCode, storedHash))
                     return onErr(400, "验证码错误");
                 // 验证码通过后继续账号校验 (复用无验证码路径)
                 login(nlohmann::json{{"username", username}, {"password", password}}, clientIp,
@@ -355,18 +358,21 @@ void changePassword(int64_t userId, const nlohmann::json& body, JsonCb onOk, Err
 
 void captcha(JsonCb onOk, ErrCb onErr) {
     auto id = uuid();
-    auto code = randomCode(4);
+    auto code = Captcha::generateCode(4);
+    // P3-4.1: Redis 只存大小写不敏感 hash, 响应不再返回明文 (dev_captcha 移除),
+    //         前端展示 SVG data URI (captcha_image)
+    auto hash = Captcha::hashCode(code);
+    auto image = Captcha::svgDataUri(code);
     auto rdb = drogon::app().getRedisClient();
     rdb->execCommandAsync(
-        [id, code, onOk](const drogon::nosql::RedisResult&) {
+        [id, image, onOk](const drogon::nosql::RedisResult&) {
             nlohmann::json data;
             data["captcha_id"] = id;
-            // MVP 直接返回明文 (前端渲染为图片占位); M2 替换为 SVG/PNG 渲染
-            data["dev_captcha"] = code;
+            data["captcha_image"] = image;
             onOk(data);
         },
         [onErr](const drogon::nosql::RedisException& e) { onErr(500, e.what()); },
-        "SET captcha:%s %s EX 300", id.c_str(), code.c_str());
+        "SET captcha:%s %s EX 300", id.c_str(), hash.c_str());
 }
 
 } // namespace hms::AuthService

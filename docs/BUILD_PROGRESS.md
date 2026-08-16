@@ -154,3 +154,61 @@
 `scripts/release_drill.ps1` 实测结果：① expand 启新版 C(8090, drogon_config.c.json) healthz=ok；② 蓝绿 nginx（`deploy/nginx/nginx.drill.conf`，split_clients $request_id 10% green + X-HMS-Slot 响应头，8443 TLS）200 请求实测 green%=10/11.5/13.5 → `gate_canary_10pct=true`；③ 回滚 = 宿主机侧删 green 行（.NET API 无 BOM UTF-8 读写，:ro 挂载容器内直接可见）+ reload，100 请求 green=0 → `gate_rollback_zero_traffic=true`；④ contract kill C + 撤演练 nginx → `gate_contract_c_down=true`；⑤ kill B → leader 租约保持且 A 持续发布（published +120/6s）→ `gate_leader_takeover=true`；B 重启 0.5s healthz=ok → `gate_self_heal_30s=true`。
 
 修错纪要：nginx split_clients 不接受 0%（invalid percent value）→ 回滚改删行；bind-mount 文件容器内 sed -i Resource busy + PS5.1 向 docker exec 传 sed 引号不稳 → 宿主机侧改文件；SimpleAmqpClient DeclareQueue 返回队列名非消息数 → DeclareQueueWithCounts；分区名 substring from 17 截掉 "20" → from 15（iot_raw_data_p 前缀 14 字符）。
+
+## 核心功能完善 P1-P3（2026-08-16）
+
+> 基于 `docs/CORE_PLAN.md` v1.1 评审通过方案，按 P1 正确性 → P2 稳定性 → P3 安全性顺序实施。每批独立提交 + 回归（clang-format / Ninja 编译 / 单测 / 权限映射门禁）。
+
+### P1 正确性（17 项，全部完成）
+
+| 批次 | commit | 内容 |
+|------|--------|------|
+| 2.1 | `fdf7e3c` | profile 空结果返回 404 而非挂起 |
+| 2.5 | `3562d2f` | 缺陷处置记录处置人与处置时间（迁移 010 加列） |
+| 2.6 | `6e1bdc7` | 工单取消路由 + 权限码 |
+| 2.10 | `c11185c` | 集成服务过滤动态 WHERE + Saga 完工走状态机 |
+| 2.7 | `65c5da1` | 主数据 CRUD 补齐（产线/产品/工艺/计划分页） |
+| 2.8 | `292bdb6` | 审计日志过滤补齐（operation/响应码/IP/时间范围，分区裁剪） |
+| 2.11 | `4c1f7d4` | 注释编码修复 + 实时推送 null 兜底 |
+| 2.3 | `a1a9858` | 伪 OEE 字段改名 yield_rate + WS 契约频道级 payload schema |
+| 2.4 | `8208949` | 报工质检门禁（灰度开关 quality_gate_enabled，默认开启可回退） |
+| 2.2 | `f47a6b8` | 停采指令后端二次投递 + MQ 拓扑收紧防回环（topology.json） |
+| 2.9A | `1376745` | 设备心跳写入 + 离线判定（60s 超时置离线 + OFFLINE 告警） |
+| 2.11h | `b0e112b` | 工序级 scrap_qty 记录（P2 并入） |
+
+### P2 稳定性（5 项，全部完成）
+
+| 批次 | commit | 内容 |
+|------|--------|------|
+| 3.4 | `e7f43b0` | iot_alerts 保留策略（pg_cron 每日 03:00 清理 180 天） |
+| 3.3 | `5d3848b` | Outbox 终态死信（重试超限 status=3 + 监控告警） |
+| 3.2 | `e0c8ea5` | Service 层关键规则提取 + 单测补齐（报工/质检/集成 5+3+3=11 用例） |
+| 3.1 | `d46c424` | 报工并发稳定性专项（k6 120 并发 + E2E 真并发 120 报工不超报） |
+| 3.5 | `dfc962d` | 大屏降级链路 E2E（杀实例降级 + 恢复回切 + 1000 连接回归） |
+
+### P3 安全性（4.1/4.2/4.3/4.5 完成，4.4 并入 5.3）
+
+| 批次 | commit | 内容 |
+|------|--------|------|
+| 4.5 | `20467f8` | 审计日志密码脱敏（严重：登录/改密明文不再落库 sys_audit_logs） |
+| 4.2 | `f233bfa` | 登录验证缓存 key 去除明文密码（改 username\|ip\|hash） |
+| 4.3 | `8a1f55e` | JWT refresh token 轮换（旧 refresh 重放被拒） |
+| 4.1 | 本提交 | 验证码明文返显消除（SVG data URI + Redis 存 hash + 大小写不敏感 + 一次一用） |
+| 4.4 | 并入 5.3 | 大屏弱默认凭据移除（随大屏重构一并处理） |
+
+### P3-4.1 验证码安全实现细节
+
+**后端**：
+- 新增 `src/utils/Captcha.hh`（header-only，无新依赖）：4 字符生成（剔除 0/O/1/I/L）→ FNV-1a 大小写不敏感 hash → SVG 渲染（随机位置/旋转/颜色 + 3 干扰线 + 40 噪点）→ base64 data URI
+- `AuthService.cc` 改造：`captcha()` 存 Redis hash 而非明文，响应 `captcha_image`(data URI) 替代 `dev_captcha`；`login()` 校验改 `Captcha::verifyCode`（恒定时间比较）
+- 一次一用：GET 即 DEL 语义保持（验证码取用后立即删除，无论成败）
+
+**前端**：
+- `Login.tsx`：验证码图片展示（antd Image + SVG data URI src）+ 点击刷新 + 登录失败自动刷新（一次一用后旧码已失效）
+- `auth.tsx`：login 签名增加可选 captcha 参数（dev 缺省、生产开启后必传）
+
+**单测**：`tests/test_captcha.cc`（6 用例）：生成长度/字母表、大小写不敏感哈希、校验语义、恒定时间比较、SVG 渲染含字符+干扰线+噪点、data URI base64 格式
+
+**编译修复**：`Captcha` 是命名空间（`namespace hms::Captcha`）非类 → `using hms::Captcha;` 报 C2873 → 改命名空间别名 `namespace cap = hms::Captcha;`
+
+**构建环境**：`build/`（VS 生成器）MSBuild 崩溃（Access violation，非代码问题）→ 绕道 `build-ninja/`（Ninja + VS DevShell 模块加载 MSVC 环境）→ 54/54 单测全绿
