@@ -2,10 +2,10 @@
 # 场景: 建 plan_qty=100 工单流转至进行中 -> .NET HttpClient 并发 120 次报工 (good_qty=1)
 #       -> 断言: 恰好 100 成功且 DB completed_qty=100 (不超报, 原子防超报生效),
 #               剩余 20 次被拦截 (409), 满量自动完工 (status=5)。
-# 前置: just dev-up 已启动中间件, hms-backend 运行于 :8088。
+# 前置: just dev-up 已启动中间件, mes-backend 运行于 :8088。
 $ErrorActionPreference = "Stop"
 [System.Net.ServicePointManager]::Expect100Continue = $false
-$base = if ($env:HMS_API_BASE) { $env:HMS_API_BASE } else { "http://127.0.0.1:8088" }
+$base = if ($env:MES_API_BASE) { $env:MES_API_BASE } else { "http://127.0.0.1:8088" }
 $suffix = Get-Date -Format "HHmmssfff"
 $planQty = 100
 $concurrent = 120   # plan + 20 超额
@@ -40,7 +40,7 @@ function Assert([bool]$cond, [string]$name) {
 }
 
 function Psql([string]$sql) {
-    return ((docker exec hms-postgres psql -U hms -d hms -t -A -c $sql) | Out-String).Trim()
+    return ((docker exec mes-postgres psql -U mes -d mes -t -A -c $sql) | Out-String).Trim()
 }
 
 Write-Host "==> admin 登录" -ForegroundColor Cyan

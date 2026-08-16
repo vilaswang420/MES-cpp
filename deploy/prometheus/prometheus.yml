@@ -8,7 +8,7 @@ rule_files:
 
 scrape_configs:
   # backend 双副本: swarm 下 service DNS 轮询抓取 (每实例指标独立, 标签带 instance)
-  - job_name: hms-backend
+  - job_name: mes-backend
     metrics_path: /metrics
     static_configs:
       - targets: ["backend:8088"]

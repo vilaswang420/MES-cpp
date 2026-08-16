@@ -1,6 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "$id": "https://hms.local/contracts/ws-push.schema.json",
+    "$id": "https://mes.local/contracts/ws-push.schema.json",
     "title": "WebSocket 推送消息 (设计文档 4.9 节)",
     "description": "WsBroadcastManager 向订阅频道推送的统一信封。客户端按 channel 订阅, 订阅与发布使用同一业务频道名 (如 production.realtime / device.status / alert)。",
     "type": "object",

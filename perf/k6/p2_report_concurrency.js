@@ -2,7 +2,7 @@
 // 目标: 验证单 SQL CTE 原子防超报 (completed_qty + delta <= plan_qty) 在
 //       高并发下不超报: 120 个并发报工打同一 plan_qty=100 工单,
 //       恰好 100 次成功 (满量自动完工), 其余 20 次被原子拦截返回 409。
-// 前置: just dev-up 已就绪, hms-backend 运行于 :8088 (可用 HMS_API_BASE 覆盖)。
+// 前置: just dev-up 已就绪, mes-backend 运行于 :8088 (可用 MES_API_BASE 覆盖)。
 // 执行: k6 run perf/k6/p2_report_concurrency.js
 // 退出判定: 门禁阈值 + teardown DB/API 断言 completed_qty == plan_qty (不超报)。
 import http from "k6/http";
@@ -10,7 +10,7 @@ import { check } from "k6";
 import { Rate } from "k6/metrics";
 import exec from "k6/execution";
 
-const BASE = __ENV.HMS_API_BASE || "http://127.0.0.1:8088";
+const BASE = __ENV.MES_API_BASE || "http://127.0.0.1:8088";
 const HEADERS = { "Content-Type": "application/json" };
 
 // 业务层意外错误率 (HTTP 200 但 code != 200/409, 或 5xx): 并发保护不应产生 500

@@ -1,6 +1,6 @@
-# HMS 已有功能清单 + 核心功能缺口分析
+# MES 已有功能清单 + 核心功能缺口分析
 
-> 版本: 1.1 | 日期: 2026-08-16 | 基于: HMS M3 定稿代码库 (P1-P3 核心完善已完成)
+> 版本: 1.1 | 日期: 2026-08-16 | 基于: MES M3 定稿代码库 (P1-P3 核心完善已完成)
 
 ---
 
@@ -278,7 +278,7 @@
 
 ## 5. IoT 采集服务功能清单
 
-### 5.1 已实现 (hms-iot/)
+### 5.1 已实现 (mes-iot/)
 
 | 功能 | 状态 | 说明 |
 |------|------|------|
@@ -385,15 +385,15 @@
 
 ```
 第一批 (P0, 阻碍上线):
-  1. IoT Modbus TCP 采集实现 → hms-iot/src/main.cc
-  2. 大屏 ECharts 集成 → hms-dashboard/src/App.vue
-  3. 前端设备管理页面 → hms-web/src/pages/iot/
+  1. IoT Modbus TCP 采集实现 → mes-iot/src/main.cc
+  2. 大屏 ECharts 集成 → mes-dashboard/src/App.vue
+  3. 前端设备管理页面 → mes-web/src/pages/iot/
   4. GA 标准环境 2h 容量验证 → perf/k6/m2_composite.js
 
 第二批 (P1, 运营效率):
-  5. PAD 移动端 (PWA) → 新建 hms-pad/ 或 hms-web 移动适配
-  6. 前端质量检验页面 → hms-web/src/pages/quality/
-  7. 前端集成管理页面 → hms-web/src/pages/integration/
+  5. PAD 移动端 (PWA) → 新建 mes-pad/ 或 mes-web 移动适配
+  6. 前端质量检验页面 → mes-web/src/pages/quality/
+  7. 前端集成管理页面 → mes-web/src/pages/integration/
   8. Alertmanager + Grafana 部署
   9. 用户导入/导出 + 审计导出
   10. CI/CD Pipeline 配置
@@ -421,7 +421,7 @@
 
 ### 8.3 总结
 
-HMS 后端工程已达**工业级 MES 水准**: 76 条 API 全部实现并经过 M1-M3 全链路验证 (k6 P95=278ms, 1000 WS 连接, 蓝绿发布, 双实例扩容)。数据库设计完善 (31 表 6 模块, 分区+审计+RBAC), MQ 消息可靠 (Outbox+有界重试+DLQ), 可观测性就绪 (7 指标+6 告警)。
+MES 后端工程已达**工业级 MES 水准**: 76 条 API 全部实现并经过 M1-M3 全链路验证 (k6 P95=278ms, 1000 WS 连接, 蓝绿发布, 双实例扩容)。数据库设计完善 (31 表 6 模块, 分区+审计+RBAC), MQ 消息可靠 (Outbox+有界重试+DLQ), 可观测性就绪 (7 指标+6 告警)。
 
 **最大短板**在前端和 IoT 采集两端:
 - 前端仅覆盖用户权限+生产管理 (8 页面), 设备/质量/集成 3 大模块的后端接口已就绪但前端页面空白
@@ -433,4 +433,4 @@ HMS 后端工程已达**工业级 MES 水准**: 76 条 API 全部实现并经过
 
 ---
 
-> **文档版本**: 1.1 | **最后更新**: 2026-08-16 | **维护者**: HMS 团队
+> **文档版本**: 1.1 | **最后更新**: 2026-08-16 | **维护者**: MES 团队

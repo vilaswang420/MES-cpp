@@ -1,11 +1,11 @@
-# HMS 告警规则 (M3 任务 28): 对齐计划任务 28 指标清单
+# MES 告警规则 (M3 任务 28): 对齐计划任务 28 指标清单
 # (QPS/延迟/MQ lag/outbox 待投递/广播扇出/分区剩余天数)
 groups:
-  - name: hms_capacity
+  - name: mes_capacity
     rules:
       # 分区剩余天数 < 7: partman premake 断供风险 (写入将失败)
       - alert: PartitionDaysLeftLow
-        expr: hms_partition_days_left < 7
+        expr: mes_partition_days_left < 7
         for: 5m
         labels: { severity: critical }
         annotations:
@@ -13,7 +13,7 @@ groups:
 
       # MQ 数据队列积压 > 10 万: 消费速率跟不上 (容量校准: 持续消费 ≈1.3k/s)
       - alert: MqDataQueueBacklog
-        expr: hms_mq_queue_messages{queue="iot.data.queue"} > 100000
+        expr: mes_mq_queue_messages{queue="iot.data.queue"} > 100000
         for: 5m
         labels: { severity: warning }
         annotations:
@@ -21,7 +21,7 @@ groups:
 
       # DLQ 持续增长: 毒消息或契约漂移
       - alert: DlqGrowing
-        expr: increase(hms_mq_queue_messages{queue="iot.dlq"}[10m]) > 10
+        expr: increase(mes_mq_queue_messages{queue="iot.dlq"}[10m]) > 10
         for: 1m
         labels: { severity: warning }
         annotations:
@@ -29,7 +29,7 @@ groups:
 
       # outbox 待投递堆积: 投递器故障或 MQ 不可达
       - alert: OutboxPendingHigh
-        expr: hms_outbox_pending > 100
+        expr: mes_outbox_pending > 100
         for: 5m
         labels: { severity: warning }
         annotations:
@@ -37,17 +37,17 @@ groups:
 
       # outbox 死信产生 (P2-3.3): 重试超限置死信, 需人工介入 (MQ 拓扑/契约检查)
       - alert: OutboxDeadLettering
-        expr: increase(hms_outbox_dead_total[10m]) > 0
+        expr: increase(mes_outbox_dead_total[10m]) > 0
         for: 1m
         labels: { severity: critical }
         annotations:
           summary: "outbox 10 分钟内新增死信 {{ $value }} 条 (重试超限, 需人工介入)"
 
-  - name: hms_slo
+  - name: mes_slo
     rules:
       # REST P95 > 369ms (m1 基线×1.3, 与 m2_composite 门禁一致)
       - alert: HttpP95High
-        expr: histogram_quantile(0.95, sum(rate(hms_http_request_duration_ms_bucket[5m])) by (le)) > 369
+        expr: histogram_quantile(0.95, sum(rate(mes_http_request_duration_ms_bucket[5m])) by (le)) > 369
         for: 5m
         labels: { severity: warning }
         annotations:
@@ -56,8 +56,8 @@ groups:
       # 5xx 比例 > 0.5%
       - alert: Http5xxRate
         expr: >
-          sum(rate(hms_http_requests_total{status=~"5.."}[5m]))
-          / sum(rate(hms_http_requests_total[5m])) > 0.005
+          sum(rate(mes_http_requests_total{status=~"5.."}[5m]))
+          / sum(rate(mes_http_requests_total[5m])) > 0.005
         for: 5m
         labels: { severity: critical }
         annotations:

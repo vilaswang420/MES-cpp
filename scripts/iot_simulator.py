@@ -47,8 +47,8 @@ def make_poison_message() -> dict:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="HMS IoT 数据模拟器")
-    ap.add_argument("--url", default="amqp://hms:hms_dev_pwd@127.0.0.1:5672/")
+    ap = argparse.ArgumentParser(description="MES IoT 数据模拟器")
+    ap.add_argument("--url", default="amqp://mes:mes_dev_pwd@127.0.0.1:5672/")
     ap.add_argument("--count", type=int, default=1000, help="正常消息总数")
     ap.add_argument("--devices", type=int, default=10, help="模拟设备数")
     ap.add_argument("--sensors-per-device", type=int, default=3)

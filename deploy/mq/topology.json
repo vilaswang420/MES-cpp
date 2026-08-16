@@ -2,7 +2,7 @@
   "rabbit_version": "3.13.0",
   "users": [
     {
-      "name": "hms",
+      "name": "mes",
       "password_hash": "349884e70f43263846cc1669271768e388c057dc644a4480d91350f5041e903587b633f2",
       "hashing_algorithm": "rabbit_password_hashing_sha256",
       "tags": ["administrator"]
@@ -10,7 +10,7 @@
   ],
   "vhosts": [{ "name": "/" }],
   "permissions": [
-    { "user": "hms", "vhost": "/", "configure": ".*", "write": ".*", "read": ".*" }
+    { "user": "mes", "vhost": "/", "configure": ".*", "write": ".*", "read": ".*" }
   ],
   "exchanges": [
     {

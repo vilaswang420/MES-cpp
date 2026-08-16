@@ -2,7 +2,7 @@
 """fail-closed 权限映射完整性门禁 (计划任务 8 / 风险缓解"fail-closed 漏注册致新接口 403")。
 
 规则:
-  1. 扫描 hms-backend/src/controllers/*.cc 中全部 ADD_METHOD_TO 路由 (path + HTTP method);
+  1. 扫描 mes-backend/src/controllers/*.cc 中全部 ADD_METHOD_TO 路由 (path + HTTP method);
   2. 每条路由必须在 src/middlewares/perm_routes.cc 中注册 (addPublic 或 add);
   3. add 注册的权限码 (除 auth:bearer 外) 必须在 migrations/002_seed.up.sql 中
      存在对应 sys_permissions 行 (perm_code), 保证种子库与运行时映射一致。
@@ -42,7 +42,7 @@ def normalize(path: str) -> str:
 
 def collect_routes(root: Path) -> set:
     routes = set()
-    for cc in sorted((root / "hms-backend/src/controllers").glob("*.cc")):
+    for cc in sorted((root / "mes-backend/src/controllers").glob("*.cc")):
         text = cc.read_text(encoding="utf-8")
         for m in ROUTE_RE.finditer(text):
             method = METHOD_MAP.get(m.group(2))
@@ -54,7 +54,7 @@ def collect_routes(root: Path) -> set:
 
 
 def collect_perm_map(root: Path):
-    text = (root / "hms-backend/src/middlewares/perm_routes.cc").read_text(encoding="utf-8")
+    text = (root / "mes-backend/src/middlewares/perm_routes.cc").read_text(encoding="utf-8")
     mapping = {}  # (path, method) -> perm code ("__public__" 表示公开)
     for m in PUBLIC_ADD_RE.finditer(text):
         mapping[(normalize(m.group(1)), m.group(2).upper())] = "__public__"
@@ -64,7 +64,7 @@ def collect_perm_map(root: Path):
 
 
 def collect_seed_codes(root: Path) -> set:
-    text = (root / "hms-backend/migrations/002_seed.up.sql").read_text(encoding="utf-8")
+    text = (root / "mes-backend/migrations/002_seed.up.sql").read_text(encoding="utf-8")
     return set(SEED_CODE_RE.findall(text))
 
 

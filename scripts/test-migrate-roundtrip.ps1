@@ -4,18 +4,18 @@
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
-$migrations = ((Join-Path $root "hms-backend\migrations") -replace "\\", "/")
-# 独立测试库, 避免污染开发库 hms
-$dsn = "postgres://hms:hms_dev_pwd@localhost:5432/hms_roundtrip?sslmode=disable"
+$migrations = ((Join-Path $root "mes-backend\migrations") -replace "\\", "/")
+# 独立测试库, 避免污染开发库 mes
+$dsn = "postgres://mes:mes_dev_pwd@localhost:5432/mes_roundtrip?sslmode=disable"
 
 function Invoke-Sql([string]$Sql) {
-    docker exec -i hms-postgres psql -U hms -d hms_roundtrip -c $Sql
+    docker exec -i mes-postgres psql -U mes -d mes_roundtrip -c $Sql
     if ($LASTEXITCODE -ne 0) { throw "SQL 执行失败: $Sql" }
 }
 
-Write-Host "==> 准备测试库 hms_roundtrip" -ForegroundColor Cyan
-docker exec -i hms-postgres psql -U hms -d postgres -c "DROP DATABASE IF EXISTS hms_roundtrip;" | Out-Null
-docker exec -i hms-postgres psql -U hms -d postgres -c "CREATE DATABASE hms_roundtrip;" | Out-Null
+Write-Host "==> 准备测试库 mes_roundtrip" -ForegroundColor Cyan
+docker exec -i mes-postgres psql -U mes -d postgres -c "DROP DATABASE IF EXISTS mes_roundtrip;" | Out-Null
+docker exec -i mes-postgres psql -U mes -d postgres -c "CREATE DATABASE mes_roundtrip;" | Out-Null
 
 Write-Host "==> migrate up (全量)" -ForegroundColor Cyan
 migrate -path $migrations -database $dsn up
@@ -34,6 +34,6 @@ migrate -path $migrations -database $dsn up
 if ($LASTEXITCODE -ne 0) { throw "二次 migrate up 失败" }
 
 Write-Host "==> 清理测试库" -ForegroundColor Cyan
-docker exec -i hms-postgres psql -U hms -d postgres -c "DROP DATABASE hms_roundtrip;" | Out-Null
+docker exec -i mes-postgres psql -U mes -d postgres -c "DROP DATABASE mes_roundtrip;" | Out-Null
 
 Write-Host "迁移往返测试通过" -ForegroundColor Green

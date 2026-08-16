@@ -10,5 +10,5 @@
 约定:
 
 - 每个 POC 自带独立 README 与最小 compose/构建说明, 可单独跑通;
-- POC 依赖版本一旦锁定, 同步写入 `hms-backend/vcpkg.json`, 之后本目录代码冻结;
+- POC 依赖版本一旦锁定, 同步写入 `mes-backend/vcpkg.json`, 之后本目录代码冻结;
 - 禁止从主干反向引用本目录任何代码。

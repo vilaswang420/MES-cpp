@@ -19,7 +19,7 @@
 
 ## 路由与权限 (fail-closed)
 
-1. 新增 Controller 路由后, **必须**在 `hms-backend/src/middlewares/perm_routes.cc` 注册 `(path_pattern, method) -> perm_code` 映射, 并在 `002_seed` 或新迁移中补权限记录;
+1. 新增 Controller 路由后, **必须**在 `mes-backend/src/middlewares/perm_routes.cc` 注册 `(path_pattern, method) -> perm_code` 映射, 并在 `002_seed` 或新迁移中补权限记录;
 2. `scripts/check_perm_mapping.py` 会扫描所有 `ADD_METHOD_TO` 声明与 perm_routes 注册表, 缺失即构建失败;
 3. 公开接口 (login/captcha/healthz) 必须显式列入白名单, 不允许"恰好没配权限"式放行。
 
@@ -32,6 +32,6 @@
 
 ## 代码风格
 
-- C++20, clang-format (配置见 `hms-backend/.clang-format`); Service 层用 Drogon 协程, 回调只留底层插件;
+- C++20, clang-format (配置见 `mes-backend/.clang-format`); Service 层用 Drogon 协程, 回调只留底层插件;
 - 时间一律 UTC ISO8601 带 `Z`; 统一响应 `{code,message,data,timestamp,trace_id}`;
 - 错误 JSON 只允许全局错误拦截器 (`registerHandlingErrorAdvice`) 产出, 业务代码抛 `ApiException`。

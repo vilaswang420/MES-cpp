@@ -1,4 +1,4 @@
-# justfile — HMS 统一命令入口 (安装: https://github.com/casey/just)
+# justfile — MES 统一命令入口 (安装: https://github.com/casey/just)
 set shell := ["powershell", "-NoProfile", "-Command"]
 set dotenv-load := false
 
@@ -9,7 +9,7 @@ compose_dev := root + "/deploy/compose/docker-compose.dev.yml"
 dev-up:
     just infra-up
     just migrate-up
-    @echo "infra ready; start hms-backend/hms-iot/hms-web/hms-dashboard manually or via their own scripts"
+    @echo "infra ready; start mes-backend/mes-iot/mes-web/mes-dashboard manually or via their own scripts"
 
 infra-up:
     docker compose -f "{{compose_dev}}" up -d --build
@@ -22,13 +22,13 @@ infra-logs *args:
 
 # golang-migrate (需安装 migrate CLI)
 migrate-up:
-    migrate -path "{{root}}/hms-backend/migrations" -database "postgres://hms:hms_dev_pwd@localhost:5432/hms?sslmode=disable" up
+    migrate -path "{{root}}/mes-backend/migrations" -database "postgres://mes:mes_dev_pwd@localhost:5432/mes?sslmode=disable" up
 
 migrate-down:
-    migrate -path "{{root}}/hms-backend/migrations" -database "postgres://hms:hms_dev_pwd@localhost:5432/hms?sslmode=disable" down 1
+    migrate -path "{{root}}/mes-backend/migrations" -database "postgres://mes:mes_dev_pwd@localhost:5432/mes?sslmode=disable" down 1
 
 migrate-force version:
-    migrate -path "{{root}}/hms-backend/migrations" -database "postgres://hms:hms_dev_pwd@localhost:5432/hms?sslmode=disable" force {{version}}
+    migrate -path "{{root}}/mes-backend/migrations" -database "postgres://mes:mes_dev_pwd@localhost:5432/mes?sslmode=disable" force {{version}}
 
 # 迁移往返测试 (CI 同款, 含跨分区插入用例)
 migrate-roundtrip:
@@ -40,18 +40,18 @@ check-perm-map:
 
 # 后端构建与测试
 build-backend:
-    cmake -S "{{root}}/hms-backend" -B "{{root}}/hms-backend/build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake
-    cmake --build "{{root}}/hms-backend/build" --config Release -j
+    cmake -S "{{root}}/mes-backend" -B "{{root}}/mes-backend/build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake
+    cmake --build "{{root}}/mes-backend/build" --config Release -j
 
 test-backend:
-    ctest --test-dir "{{root}}/hms-backend/build" -C Release --output-on-failure
+    ctest --test-dir "{{root}}/mes-backend/build" -C Release --output-on-failure
 
 # 前端
 dev-web:
-    powershell -NoProfile -Command "cd '{{root}}/hms-web'; npm install; npm run dev"
+    powershell -NoProfile -Command "cd '{{root}}/mes-web'; npm install; npm run dev"
 
 dev-dashboard:
-    powershell -NoProfile -Command "cd '{{root}}/hms-dashboard'; npm install; npm run dev"
+    powershell -NoProfile -Command "cd '{{root}}/mes-dashboard'; npm install; npm run dev"
 
 # E2E
 e2e-m1:

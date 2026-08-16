@@ -13,11 +13,11 @@ function Check([string]$name, [bool]$cond) {
 }
 
 function Psql([string]$sql) {
-    return ((docker exec hms-postgres psql -U hms -d hms -t -A -c $sql) | Out-String).Trim()
+    return ((docker exec mes-postgres psql -U mes -d mes -t -A -c $sql) | Out-String).Trim()
 }
 
 function QueueDepth([string]$queue) {
-    $out = docker exec hms-rabbitmq rabbitmqctl list_queues name messages -q 2>$null
+    $out = docker exec mes-rabbitmq rabbitmqctl list_queues name messages -q 2>$null
     foreach ($line in $out) {
         $parts = ($line | Out-String).Trim() -split "\s+"
         if ($parts[0] -eq $queue) { return [int]$parts[1] }
@@ -45,7 +45,7 @@ for ($i = 0; $i -lt 24; $i++) {
 Check "1 万条全量入库 iot_raw_data" $ingested
 
 # ---- 3. Redis device:latest 更新 ----
-$latest = docker exec hms-redis redis-cli GET "device:latest:1" 2>$null | Out-String
+$latest = docker exec mes-redis redis-cli GET "device:latest:1" 2>$null | Out-String
 Check "Redis device:latest:1 已更新" ($latest -like '*DEV-SIM-0001*')
 
 # ---- 4. 数据队列排空 ----

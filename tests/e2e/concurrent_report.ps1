@@ -2,9 +2,9 @@
 #   同一工单最后一件, N 个并发报工会话同时提交 good_qty=1,
 #   必须恰好 1 个成功 (行级锁 FOR UPDATE 串行化), 其余全部 409 拒绝;
 #   最终 completed_qty 恰好等于 plan_qty, 恰好触发 1 条停采 outbox。
-# 前置: just dev-up 已启动中间件与迁移, hms-backend 运行于 :8088。
+# 前置: just dev-up 已启动中间件与迁移, mes-backend 运行于 :8088。
 $ErrorActionPreference = "Stop"
-$base = if ($env:HMS_API_BASE) { $env:HMS_API_BASE } else { "http://127.0.0.1:8088" }
+$base = if ($env:MES_API_BASE) { $env:MES_API_BASE } else { "http://127.0.0.1:8088" }
 $suffix = Get-Random -Minimum 1000 -Maximum 9999
 $concurrency = 8
 
@@ -87,7 +87,7 @@ if ($detail.status -ne 5) { throw "满量后应自动完工 (status=5), 实际 $
 Write-Host "  completed_qty=1, status=5 (自动完工)"
 
 # ---- 5. 断言: 恰好 1 条停采 outbox (不允许重复触发) ----
-$outboxCount = docker exec hms-postgres psql -U hms -d hms -t -A -c `
+$outboxCount = docker exec mes-postgres psql -U mes -d mes -t -A -c `
     "SELECT COUNT(*) FROM mq_outbox WHERE routing_key='cmd.stop_collection' AND payload LIKE '%$($wo.work_order_no)%';"
 if ([int]$outboxCount -ne 1) { throw "停采 outbox 应恰好 1 条, 实际 $outboxCount" }
 Write-Host "  停采 outbox 恰好 1 条"

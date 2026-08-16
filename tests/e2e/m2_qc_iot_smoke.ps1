@@ -1,9 +1,9 @@
 ﻿# tests/e2e/m2_qc_iot_smoke.ps1 — M2 IoT 18 接口 + 质量域 7 接口冒烟
-# 前置: hms-backend 运行于 :8088, 三容器就绪。执行: powershell -File tests/e2e/m2_qc_iot_smoke.ps1
+# 前置: mes-backend 运行于 :8088, 三容器就绪。执行: powershell -File tests/e2e/m2_qc_iot_smoke.ps1
 $ErrorActionPreference = "Stop"
 # .NET HttpWebRequest 默认对 POST 发 Expect: 100-continue, 与服务端竞态会导致偶发空体 400
 [System.Net.ServicePointManager]::Expect100Continue = $false
-$base = if ($env:HMS_API_BASE) { $env:HMS_API_BASE } else { "http://127.0.0.1:8088" }
+$base = if ($env:MES_API_BASE) { $env:MES_API_BASE } else { "http://127.0.0.1:8088" }
 $pass = 0; $fail = 0
 
 function Api([string]$method, [string]$path, $body = $null, [string]$token = "") {

@@ -1,0 +1,12 @@
+{
+    "amqp_url": "amqp://mes:mes_dev_pwd@127.0.0.1:5672/",
+    "exchange": "iot.exchange",
+    "routing_key": "data.report",
+    "batch_size": 100,
+    "flush_interval_ms": 100,
+    "healthz_port": 8091,
+    "backend_url": "http://127.0.0.1:8088",
+    "backend_user": "admin",
+    "backend_pwd": "",
+    "comment": "P4-5.1: devices 数组已移除, 改从后端 REST /api/v1/iot/devices 拉取。backend_pwd 必须在部署时注入 (环境变量或挂载配置覆盖)。生产环境: backend_url 指向 backend:8088 (Docker 内网)"
+}

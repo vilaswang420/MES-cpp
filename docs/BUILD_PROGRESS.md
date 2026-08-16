@@ -1,4 +1,4 @@
-# HMS 构建与验证进展
+# MES 构建与验证进展
 
 > 记录首次真实构建验证（计划任务 s1-s5）的过程与结论。最近更新：2026-08-13。
 
@@ -8,8 +8,8 @@
 |---|---|---|
 | s1 本机工具链摸底 | ✅ 完成 | VS2022 Build Tools (MSVC 14.44) + CMake + vcpkg + Node 就绪；VS Professional 实例注册损坏，改用 Build Tools + 环境变量方案 |
 | s2 报工并发超报测试 | ✅ 完成 | `tests/` 下并发超报用例，随 s3 编译运行全绿 |
-| s3 首次真实编译 hms-backend | ✅ 完成 | 6 轮迭代，203+ 错误 → 0；`hms-backend.exe` 构建成功；ctest 1/1 通过（提交 `901e805`） |
-| s4 前端构建验证 | ✅ 完成 | hms-web / hms-dashboard npm install + tsc + vite build 全部通过 |
+| s3 首次真实编译 mes-backend | ✅ 完成 | 6 轮迭代，203+ 错误 → 0；`mes-backend.exe` 构建成功；ctest 1/1 通过（提交 `901e805`） |
+| s4 前端构建验证 | ✅ 完成 | mes-web / mes-dashboard npm install + tsc + vite build 全部通过 |
 | s5 中间件联调 + 迁移往返 | ✅ 完成 | 3 容器全 healthy；migrate 全量 up/down/up 往返通过；pg_partman + pg_cron 注册成功 |
 
 ## s3 构建修复纪要（6 轮）
@@ -22,7 +22,7 @@
 | vcpkg 无 bcrypt port | vendored trusch/libbcrypt（MIT/public domain），纯 C 编译 |
 | bcrypt 链接失败 `crypt_rn`/`crypt_gensalt_rn` 未解析 | vendored 副本缺 `src/wrapper.c`，从上游补齐并纳入 CMakeLists |
 | SimpleAmqpClient 无 CMake 配置 | CMakeLists 手工创建 INTERFACE target（find_library SimpleAmqpClient.7 / rabbitmq.4） |
-| 自定义静态链接 triplet | `hms-backend/vcpkg-triplets/x64-windows-hms.cmake` |
+| 自定义静态链接 triplet | `mes-backend/vcpkg-triplets/x64-windows-mes.cmake` |
 
 ### 代码层（Drogon 1.9.13 API 适配）
 
@@ -63,21 +63,21 @@
 
 ### 验证结论
 
-- hms-postgres / hms-redis / hms-rabbitmq 均 `healthy`。
-- 开发库 `hms`：6 个迁移全量 up 成功；`partman.part_config` 2 行（sys_audit_logs 1 mon/24 months、iot_raw_data 1 day/90 days）；`cron.job` 2 个维护作业。
-- 往返测试（独立库 hms_roundtrip）：up 全量 → 跨分区插入（当月/次月）→ down 全量 → 再 up 全量，全部通过。
+- mes-postgres / mes-redis / mes-rabbitmq 均 `healthy`。
+- 开发库 `mes`：6 个迁移全量 up 成功；`partman.part_config` 2 行（sys_audit_logs 1 mon/24 months、iot_raw_data 1 day/90 days）；`cron.job` 2 个维护作业。
+- 往返测试（独立库 mes_roundtrip）：up 全量 → 跨分区插入（当月/次月）→ down 全量 → 再 up 全量，全部通过。
 
 ## 验证结论
 
-- `cmake --build ... --config Release`：0 错误，`hms-backend.exe` 1.29 MB。
-- `ctest -C Release`：`hms_unit_tests` 1/1 通过（含报工并发超报防护用例）。
+- `cmake --build ... --config Release`：0 错误，`mes-backend.exe` 1.29 MB。
+- `ctest -C Release`：`mes_unit_tests` 1/1 通过（含报工并发超报防护用例）。
 - 提交：`5016467`（骨架）→ `5ba5626`（首次构建修复+测试）→ `901e805`（全量编译通过+单测全绿）。
 
 ## 遗留事项
 
 1. **publisher confirms**：vcpkg 版 SimpleAmqpClient 无 confirm API，配置项保留，待库升级后启用；当前由 mq_outbox 重投保证最终一致。
 2. 集成测试（真实 DB 的 API 级测试）待后续补充。
-3. 已有环境补扩展的临时操作已脚本化（`.hms-stage/s5-ext.ps1`）；全新环境由 initdb 自动完成，无需干预。
+3. 已有环境补扩展的临时操作已脚本化（`.mes-stage/s5-ext.ps1`）；全新环境由 initdb 自动完成，无需干预。
 
 ## M1 出口与 M2 进展纪要（2026-08-13）
 
@@ -119,17 +119,17 @@
 
 容量校准（本机单机）：发布端 pika 峰值 12.7k msg/s（burst 无 confirm，正常 confirm 模式仅 ~104/s），计划 20k msg/s 不可达；**高负载+表 75 万行后持续消费速率实测 ≈1.3k msg/s**（空载探测 ≥5k/s），过载积压 144 万条 purge（模拟器数据）；prefetch 50→200（rabbitmq.json）。
 
-修错纪要：`ws_load.py` 初版按 `env.get("type")` 过滤永远不命中（信封契约无 type 字段，改按 channel）；hms-dashboard 直连后端登录被 CORS 拦截 → 改 vite proxy（/api + /ws）同源接入，useChannel 补自动登录取 token（后端 /ws 严格校验 query token）；传感器阈值快照缓存 60s，新建传感器后需等刷新才能触发告警。
+修错纪要：`ws_load.py` 初版按 `env.get("type")` 过滤永远不命中（信封契约无 type 字段，改按 channel）；mes-dashboard 直连后端登录被 CORS 拦截 → 改 vite proxy（/api + /ws）同源接入，useChannel 补自动登录取 token（后端 /ws 严格校验 query token）；传感器阈值快照缓存 60s，新建传感器后需等刷新才能触发告警。
 
 ## M3 高可用与容量（任务 24-27，2026-08-13）
 
 ### 任务 24 生产 compose
 
-`docker-compose.prod.yml` 从 replicas 占位改为显式拓扑：Redis Cluster redis-1..6 独立卷 + `redis-cluster-init` 幂等建群容器（`--cluster-replicas 1`）；RMQ rabbitmq-1/2/3 显式服务（共享 `HMS_MQ_COOKIE` + `rabbitmq-cluster.conf` DNS 对等发现 + 独立卷）；PG 主从（primary 加 `wal_level=replica`/`max_wal_senders`，replica 由 `init_replica.sh` pg_basebackup -R -C 预填充）；Nginx TLS+WSS 配 `scripts/gen_selfsigned_cert.ps1`（实测生成 hms.crt/hms.key，含 SAN）。`docker compose config` 校验通过。backend 镜像由 CI 产出（当前仓库仅本机 exe，为已知遗留）。
+`docker-compose.prod.yml` 从 replicas 占位改为显式拓扑：Redis Cluster redis-1..6 独立卷 + `redis-cluster-init` 幂等建群容器（`--cluster-replicas 1`）；RMQ rabbitmq-1/2/3 显式服务（共享 `MES_MQ_COOKIE` + `rabbitmq-cluster.conf` DNS 对等发现 + 独立卷）；PG 主从（primary 加 `wal_level=replica`/`max_wal_senders`，replica 由 `init_replica.sh` pg_basebackup -R -C 预填充）；Nginx TLS+WSS 配 `scripts/gen_selfsigned_cert.ps1`（实测生成 mes.crt/mes.key，含 SAN）。`docker compose config` 校验通过。backend 镜像由 CI 产出（当前仓库仅本机 exe，为已知遗留）。
 
 ### 任务 25 PgBouncer transaction + 读写分离
 
-会话无关审查：全后端代码无 LISTEN/NOTIFY/临时表/游标/会话级 SET；advisory lock 仅 `pg_try_advisory_xact_lock`（事务结束即释放，transaction 模式安全）；Drogon 参数化语句为单往返扩展协议，不在服务端保留命名 prepared。灰度实证：edoburu/pgbouncer（`-p 6432:5432` + `AUTH_TYPE=scram-sha-256`，compose_default 网络直连 hms-postgres）起池，实例 B（drogon_config.b.json，port 6432）重启后登录/工单列表/报工事务全通；`pg_stat_activity` 对照：A 直连 64 条 vs B 经池仅 2 条服务端连接。切换依据实证：双实例 2×64 曾报 too many clients（PG 默认 100），已调 max_connections=300。只读副本 DSN `HMS_PG_RO_DSN` 已在 prod compose 声明。
+会话无关审查：全后端代码无 LISTEN/NOTIFY/临时表/游标/会话级 SET；advisory lock 仅 `pg_try_advisory_xact_lock`（事务结束即释放，transaction 模式安全）；Drogon 参数化语句为单往返扩展协议，不在服务端保留命名 prepared。灰度实证：edoburu/pgbouncer（`-p 6432:5432` + `AUTH_TYPE=scram-sha-256`，compose_default 网络直连 mes-postgres）起池，实例 B（drogon_config.b.json，port 6432）重启后登录/工单列表/报工事务全通；`pg_stat_activity` 对照：A 直连 64 条 vs B 经池仅 2 条服务端连接。切换依据实证：双实例 2×64 曾报 too many clients（PG 默认 100），已调 max_connections=300。只读副本 DSN `MES_PG_RO_DSN` 已在 prod compose 声明。
 
 ### 任务 26 无状态扩容实测（双实例 8088/8089）
 
@@ -145,13 +145,13 @@
 
 ### 任务 28 可观测性 + 看板降级
 
-后端内置 Prometheus 端点：`src/utils/Metrics.hh`（counter/gauge/histogram 注册表 + render，9 桶 10~2000ms）+ `src/metrics/MetricsCollector`（outbox 待投递/WS 订阅数 5s，分区剩余天数 60s，MQ lag 独立线程经 `DeclareQueueWithCounts` passive 查询）+ `MetricsController`（GET /metrics，公开白名单）；埋点：CrossCutting preSendingAdvice 记 HTTP 计数+直方图，WsBroadcastManager 记 published/delivered，OutboxDispatcher 记 dispatched/failed。实测 /metrics 全部指标有值（hms_partition_days_left=0、四队列 lag、broadcast published 持续增长）。`deploy/prometheus/prometheus.yml`（15s 抓取）+ `alerts.yml`（6 条规则：PartitionDaysLeftLow<7d critical / MqDataQueueBacklog>10万 / DlqGrowing / OutboxPendingHigh>100 / HttpP95High>369ms / Http5xxRate>0.5%），prometheus 服务声明进 prod compose（hms_prometheus 卷）。
+后端内置 Prometheus 端点：`src/utils/Metrics.hh`（counter/gauge/histogram 注册表 + render，9 桶 10~2000ms）+ `src/metrics/MetricsCollector`（outbox 待投递/WS 订阅数 5s，分区剩余天数 60s，MQ lag 独立线程经 `DeclareQueueWithCounts` passive 查询）+ `MetricsController`（GET /metrics，公开白名单）；埋点：CrossCutting preSendingAdvice 记 HTTP 计数+直方图，WsBroadcastManager 记 published/delivered，OutboxDispatcher 记 dispatched/failed。实测 /metrics 全部指标有值（mes_partition_days_left=0、四队列 lag、broadcast published 持续增长）。`deploy/prometheus/prometheus.yml`（15s 抓取）+ `alerts.yml`（6 条规则：PartitionDaysLeftLow<7d critical / MqDataQueueBacklog>10万 / DlqGrowing / OutboxPendingHigh>100 / HttpP95High>369ms / Http5xxRate>0.5%），prometheus 服务声明进 prod compose（mes_prometheus 卷）。
 
-看板降级策略：useChannel 连续重连失败≥3 置 `degraded` → App.vue watch 切 REST 10s 轮询（在制工单首条组装 realtime 同构 payload 含 `degraded_source:true` + 告警历史 20 条），WS 恢复自动复位。浏览器实证（vite `HMS_PROXY_WS` 把 /ws 代理指死端口 18999，REST 正常）：降级横幅「降级模式：实时链路不可用，展示历史数据 (10s 轮询)」+ 历史工单 WO2026081300035 + 告警 20 条，截图 docs/screenshots/degrade_step1_ws_down.png / degrade_step2_final.png。
+看板降级策略：useChannel 连续重连失败≥3 置 `degraded` → App.vue watch 切 REST 10s 轮询（在制工单首条组装 realtime 同构 payload 含 `degraded_source:true` + 告警历史 20 条），WS 恢复自动复位。浏览器实证（vite `MES_PROXY_WS` 把 /ws 代理指死端口 18999，REST 正常）：降级横幅「降级模式：实时链路不可用，展示历史数据 (10s 轮询)」+ 历史工单 WO2026081300035 + 告警 20 条，截图 docs/screenshots/degrade_step1_ws_down.png / degrade_step2_final.png。
 
 ### 任务 29 发布演练（五阶段五门禁全过）
 
-`scripts/release_drill.ps1` 实测结果：① expand 启新版 C(8090, drogon_config.c.json) healthz=ok；② 蓝绿 nginx（`deploy/nginx/nginx.drill.conf`，split_clients $request_id 10% green + X-HMS-Slot 响应头，8443 TLS）200 请求实测 green%=10/11.5/13.5 → `gate_canary_10pct=true`；③ 回滚 = 宿主机侧删 green 行（.NET API 无 BOM UTF-8 读写，:ro 挂载容器内直接可见）+ reload，100 请求 green=0 → `gate_rollback_zero_traffic=true`；④ contract kill C + 撤演练 nginx → `gate_contract_c_down=true`；⑤ kill B → leader 租约保持且 A 持续发布（published +120/6s）→ `gate_leader_takeover=true`；B 重启 0.5s healthz=ok → `gate_self_heal_30s=true`。
+`scripts/release_drill.ps1` 实测结果：① expand 启新版 C(8090, drogon_config.c.json) healthz=ok；② 蓝绿 nginx（`deploy/nginx/nginx.drill.conf`，split_clients $request_id 10% green + X-MES-Slot 响应头，8443 TLS）200 请求实测 green%=10/11.5/13.5 → `gate_canary_10pct=true`；③ 回滚 = 宿主机侧删 green 行（.NET API 无 BOM UTF-8 读写，:ro 挂载容器内直接可见）+ reload，100 请求 green=0 → `gate_rollback_zero_traffic=true`；④ contract kill C + 撤演练 nginx → `gate_contract_c_down=true`；⑤ kill B → leader 租约保持且 A 持续发布（published +120/6s）→ `gate_leader_takeover=true`；B 重启 0.5s healthz=ok → `gate_self_heal_30s=true`。
 
 修错纪要：nginx split_clients 不接受 0%（invalid percent value）→ 回滚改删行；bind-mount 文件容器内 sed -i Resource busy + PS5.1 向 docker exec 传 sed 引号不稳 → 宿主机侧改文件；SimpleAmqpClient DeclareQueue 返回队列名非消息数 → DeclareQueueWithCounts；分区名 substring from 17 截掉 "20" → from 15（iot_raw_data_p 前缀 14 字符）。
 
@@ -209,6 +209,6 @@
 
 **单测**：`tests/test_captcha.cc`（6 用例）：生成长度/字母表、大小写不敏感哈希、校验语义、恒定时间比较、SVG 渲染含字符+干扰线+噪点、data URI base64 格式
 
-**编译修复**：`Captcha` 是命名空间（`namespace hms::Captcha`）非类 → `using hms::Captcha;` 报 C2873 → 改命名空间别名 `namespace cap = hms::Captcha;`
+**编译修复**：`Captcha` 是命名空间（`namespace mes::Captcha`）非类 → `using mes::Captcha;` 报 C2873 → 改命名空间别名 `namespace cap = mes::Captcha;`
 
 **构建环境**：`build/`（VS 生成器）MSBuild 崩溃（Access violation，非代码问题）→ 绕道 `build-ninja/`（Ninja + VS DevShell 模块加载 MSVC 环境）→ 54/54 单测全绿

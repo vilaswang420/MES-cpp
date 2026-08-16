@@ -1,6 +1,6 @@
-# HMS 制造执行系统 — Linux Ubuntu 24.04 部署完整手册
+# MES 制造执行系统 — Linux Ubuntu 24.04 部署完整手册
 
-> 版本: 1.0 | 日期: 2026-08-15 | 适用: HMS M3 定稿 (docker-compose.prod.yml)
+> 版本: 1.0 | 日期: 2026-08-15 | 适用: MES M3 定稿 (docker-compose.prod.yml)
 
 ---
 
@@ -34,7 +34,7 @@
                   └────┬────┘
             ┌──────────┼──────────┐
             │          │          │
-     /srv/hms-web  /srv/hms-   /api/ + /ws
+     /srv/mes-web  /srv/mes-   /api/ + /ws
      (React SPA)   dashboard/   │
                     (Vue3)      │
                           ┌─────▼─────┐
@@ -68,7 +68,7 @@
 | redis-1~6 | redis:7-alpine | 6 | 内部 | Redis Cluster 3主3从 |
 | redis-cluster-init | redis:7-alpine | 1 (一次性) | - | 集群初始化 |
 | rabbitmq-1~3 | rabbitmq:3.13-management | 3 | 内部 | RMQ 集群 |
-| backend | hms-backend | 2 | 8088 (内部) | Drogon C++ 后端 |
+| backend | mes-backend | 2 | 8088 (内部) | Drogon C++ 后端 |
 | nginx | nginx:1.27-alpine | 1 | 80, 443 | 入口代理 + 静态托管 |
 | prometheus | prom/prometheus:v2.53.0 | 1 | 9090 | 指标采集 |
 
@@ -188,9 +188,9 @@ sudo sysctl -p
 ### 4.1 克隆仓库
 
 ```bash
-sudo mkdir -p /opt/hms
-sudo chown $USER:$USER /opt/hms
-cd /opt/hms
+sudo mkdir -p /opt/mes
+sudo chown $USER:$USER /opt/mes
+cd /opt/mes
 git clone <仓库地址> .
 ```
 
@@ -199,28 +199,28 @@ git clone <仓库地址> .
 > **重要**: 首次构建需 vcpkg 编译全部 C++ 依赖 (Drogon, SimpleAmqpClient, hiredis, jwt-cpp 等), 约需 30-60 分钟 (取决于 CPU 和网速)。后续构建有 BuildKit 缓存会快很多。
 
 ```bash
-cd /opt/hms
+cd /opt/mes
 
 # 构建后端镜像 (多阶段: ubuntu:24.04 编译 → ubuntu:24.04 运行)
-docker build -f deploy/backend/Dockerfile -t hms-backend:latest .
+docker build -f deploy/backend/Dockerfile -t mes-backend:latest .
 ```
 
 构建成功后验证:
 
 ```bash
-docker run --rm hms-backend:latest sh -c "exec 3<>/dev/tcp/127.0.0.1/8088 2>/dev/null; echo ok"
+docker run --rm mes-backend:latest sh -c "exec 3<>/dev/tcp/127.0.0.1/8088 2>/dev/null; echo ok"
 # 或直接检查二进制存在
-docker run --rm hms-backend:latest ls -lh /app/hms-backend
+docker run --rm mes-backend:latest ls -lh /app/mes-backend
 ```
 
 ### 4.3 构建前端镜像
 
 ```bash
 # 管理后台 (React)
-docker build -f deploy/web/Dockerfile -t hms-web:latest .
+docker build -f deploy/web/Dockerfile -t mes-web:latest .
 
 # 大屏看板 (Vue3, 注意 --base=/dashboard/ 子路径)
-docker build -f deploy/dashboard/Dockerfile -t hms-dashboard:latest .
+docker build -f deploy/dashboard/Dockerfile -t mes-dashboard:latest .
 ```
 
 ### 4.4 提取前端静态文件
@@ -230,10 +230,10 @@ docker build -f deploy/dashboard/Dockerfile -t hms-dashboard:latest .
 ```bash
 mkdir -p deploy/compose/web-dist deploy/compose/dashboard-dist
 
-docker run --rm -v "$(pwd)/deploy/compose/web-dist:/out" hms-web:latest \
+docker run --rm -v "$(pwd)/deploy/compose/web-dist:/out" mes-web:latest \
     sh -c "cp -r /usr/share/nginx/html/* /out/"
 
-docker run --rm -v "$(pwd)/deploy/compose/dashboard-dist:/out" hms-dashboard:latest \
+docker run --rm -v "$(pwd)/deploy/compose/dashboard-dist:/out" mes-dashboard:latest \
     sh -c "cp -r /usr/share/nginx/html/* /out/"
 ```
 
@@ -241,7 +241,7 @@ docker run --rm -v "$(pwd)/deploy/compose/dashboard-dist:/out" hms-dashboard:lat
 
 ```bash
 # 定制 PG16 (含 pg_partman 5.1 + pg_cron 1.6 源码编译)
-docker build -f deploy/postgres/Dockerfile -t hms-postgres:16 deploy/postgres/
+docker build -f deploy/postgres/Dockerfile -t mes-postgres:16 deploy/postgres/
 ```
 
 > 如网络较慢, Dockerfile 内已内置 `ghfast.top` 代理回退。首次构建约 10-15 分钟。
@@ -253,20 +253,20 @@ docker build -f deploy/postgres/Dockerfile -t hms-postgres:16 deploy/postgres/
 ### 5.1 环境变量文件
 
 ```bash
-cd /opt/hms/deploy/compose
+cd /opt/mes/deploy/compose
 
 cat > .env <<EOF
 # ---- 必须修改的密码 ----
-HMS_PG_PASSWORD=请替换为强密码_至少16位
-HMS_MQ_PASSWORD=请替换为强密码_至少16位
-HMS_MQ_COOKIE=请替换为随机Erlang Cookie_至少20位
+MES_PG_PASSWORD=请替换为强密码_至少16位
+MES_MQ_PASSWORD=请替换为强密码_至少16位
+MES_MQ_COOKIE=请替换为随机Erlang Cookie_至少20位
 
 # ---- 镜像版本 ----
-HMS_REGISTRY=
-HMS_VERSION=latest
+MES_REGISTRY=
+MES_VERSION=latest
 
 # ---- 域名 (用于 Nginx server_name) ----
-HMS_DOMAIN=hms.yourcompany.com
+MES_DOMAIN=mes.yourcompany.com
 EOF
 
 chmod 600 .env  # 保护密码
@@ -275,18 +275,18 @@ chmod 600 .env  # 保护密码
 ### 5.2 后端生产配置目录
 
 ```bash
-mkdir -p /opt/hms/deploy/compose/config-prod
-cd /opt/hms/deploy/compose/config-prod
+mkdir -p /opt/mes/deploy/compose/config-prod
+cd /opt/mes/deploy/compose/config-prod
 ```
 
 **drogon_config.json** (后端主配置):
 
 ```bash
 # 从模板复制后修改密码和密钥
-cp /opt/hms/hms-backend/config/drogon_config.prod.json drogon_config.json
+cp /opt/mes/mes-backend/config/drogon_config.prod.json drogon_config.json
 
 # 修改关键项:
-# 1. passwd → 实际 PG 密码 (与 .env 中 HMS_PG_PASSWORD 一致)
+# 1. passwd → 实际 PG 密码 (与 .env 中 MES_PG_PASSWORD 一致)
 # 2. jwt_secret → 随机 32+ 字符 (openssl rand -base64 32)
 # 3. host → 保持 pgbouncer (容器名)
 # 4. redis host → 保持 redis-1 (容器名)
@@ -311,9 +311,9 @@ chmod 600 drogon_config.json
 
 ```bash
 MQ_PWD="实际MQ密码"
-jq --arg url "amqp://hms:${MQ_PWD}@rabbitmq-1:5672/%2F" \
+jq --arg url "amqp://mes:${MQ_PWD}@rabbitmq-1:5672/%2F" \
    '.amqp_url = $url' \
-   /opt/hms/hms-backend/config/rabbitmq.json > rabbitmq.json
+   /opt/mes/mes-backend/config/rabbitmq.json > rabbitmq.json
 
 chmod 600 rabbitmq.json
 ```
@@ -324,12 +324,12 @@ RabbitMQ 的 `definitions.json` (topology.json) 使用 SHA256 hash 存储密码,
 
 ```bash
 # 方法 1: 使用脚本计算 (需要 Python)
-cd /opt/hms
+cd /opt/mes
 python3 scripts/calc_mq_hash.py "$MQ_PWD"
 # 输出: password_hash: xxxxx
 
 # 方法 2: 直接用 rabbitmqctl (容器启动后)
-docker exec rabbitmq-1 rabbitmqctl change_password hms "$MQ_PWD"
+docker exec rabbitmq-1 rabbitmqctl change_password mes "$MQ_PWD"
 ```
 
 如果使用方法 2, topology.json 中的初始 hash 可以保留, 启动后立即改密码。
@@ -355,16 +355,16 @@ deploy/compose/
 ### 6.1 方案 A: 自签证书 (内网/测试环境)
 
 ```bash
-cd /opt/hms/deploy/nginx/certs
+cd /opt/mes/deploy/nginx/certs
 
 # 使用 OpenSSL 生成自签证书 (10 年有效期)
 openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
-    -keyout hms.key \
-    -out hms.crt \
-    -subj "/C=CN/ST=Province/L=City/O=YourCompany/CN=hms.local" \
-    -addext "subjectAltName=DNS:hms.local,DNS:*.hms.local,IP:192.168.1.100"
+    -keyout mes.key \
+    -out mes.crt \
+    -subj "/C=CN/ST=Province/L=City/O=YourCompany/CN=mes.local" \
+    -addext "subjectAltName=DNS:mes.local,DNS:*.mes.local,IP:192.168.1.100"
 
-chmod 600 hms.key
+chmod 600 mes.key
 ```
 
 > 也可使用项目自带脚本 `scripts/gen_selfsigned_cert.ps1` (PowerShell), 但在 Linux 上用 OpenSSL 更直接。
@@ -382,7 +382,7 @@ chmod 600 hms.key
 首次启动时 **不启动 postgres-replica**, 因为 replica 需要 pg_basebackup 从 primary 同步数据。
 
 ```bash
-cd /opt/hms/deploy/compose
+cd /opt/mes/deploy/compose
 
 # 方法: 先注释掉 prod.yml 中的 postgres-replica 服务, 或单独启动核心服务
 docker compose -f docker-compose.prod.yml up -d \
@@ -392,7 +392,7 @@ docker compose -f docker-compose.prod.yml up -d \
 
 # 等待 PG 健康
 until docker compose -f docker-compose.prod.yml exec -T postgres-primary \
-    pg_isready -U hms -d hms; do
+    pg_isready -U mes -d mes; do
     echo "waiting for postgres..."; sleep 3
 done
 
@@ -418,7 +418,7 @@ docker compose -f docker-compose.prod.yml exec -T postgres-primary \
 
 # 或手动执行:
 docker compose -f docker-compose.prod.yml exec -T postgres-primary bash -c '
-    pg_basebackup -h 127.0.0.1 -U hms -D /tmp/replica_data -Fp -Xs -P -R \
+    pg_basebackup -h 127.0.0.1 -U mes -D /tmp/replica_data -Fp -Xs -P -R \
     && touch /tmp/replica_data/standby.signal
 '
 
@@ -426,27 +426,27 @@ docker compose -f docker-compose.prod.yml exec -T postgres-primary bash -c '
 docker compose -f docker-compose.prod.yml up -d postgres-replica
 ```
 
-> **注意**: `init_replica.sh` 需要在 primary 上有复制权限。PG16 默认使用 `hms` 账号, `POSTGRES_HOST_AUTH_METHOD=md5` 允许流复制。如遇权限问题, 在 primary 上执行:
+> **注意**: `init_replica.sh` 需要在 primary 上有复制权限。PG16 默认使用 `mes` 账号, `POSTGRES_HOST_AUTH_METHOD=md5` 允许流复制。如遇权限问题, 在 primary 上执行:
 > ```sql
-> ALTER ROLE hms WITH REPLICATION;
+> ALTER ROLE mes WITH REPLICATION;
 > SELECT pg_create_physical_replication_slot('replica_slot');
 > ```
 
 ### 7.3 运行数据库迁移
 
 ```bash
-cd /opt/hms
+cd /opt/mes
 
 # 通过 PgBouncer 执行迁移 (端口 6432)
 migrate \
-    -path "hms-backend/migrations" \
-    -database "postgres://hms:${HMS_PG_PASSWORD}@localhost:6432/hms?sslmode=disable" \
+    -path "mes-backend/migrations" \
+    -database "postgres://mes:${MES_PG_PASSWORD}@localhost:6432/mes?sslmode=disable" \
     up
 
 # 验证迁移版本
 migrate \
-    -path "hms-backend/migrations" \
-    -database "postgres://hms:${HMS_PG_PASSWORD}@localhost:6432/hms?sslmode=disable" \
+    -path "mes-backend/migrations" \
+    -database "postgres://mes:${MES_PG_PASSWORD}@localhost:6432/mes?sslmode=disable" \
     version
 ```
 
@@ -454,14 +454,14 @@ migrate \
 > ```bash
 > # 先临时暴露 5432 端口或通过 docker exec
 > docker compose -f deploy/compose/docker-compose.prod.yml exec -T postgres-primary \
->     psql -U hms -d hms -c "SELECT * FROM schema_migrations;"
+>     psql -U mes -d mes -c "SELECT * FROM schema_migrations;"
 > ```
 
 ### 7.4 验证分区和定时任务
 
 ```bash
 docker compose -f deploy/compose/docker-compose.prod.yml exec -T postgres-primary \
-    psql -U hms -d hms <<'SQL'
+    psql -U mes -d mes <<'SQL'
 -- 检查 pg_partman 注册
 SELECT parent_table, premake FROM partman.part_config;
 
@@ -479,7 +479,7 @@ SQL
 ### 7.5 启动后端和 Nginx
 
 ```bash
-cd /opt/hms/deploy/compose
+cd /opt/mes/deploy/compose
 
 # 启动后端 (双副本)
 docker compose -f docker-compose.prod.yml up -d backend
@@ -502,7 +502,7 @@ docker compose -f docker-compose.prod.yml up -d prometheus
 首次部署完成上述步骤后, 后续可一键启动全栈:
 
 ```bash
-cd /opt/hms/deploy/compose
+cd /opt/mes/deploy/compose
 docker compose -f docker-compose.prod.yml up -d
 ```
 
@@ -536,7 +536,7 @@ curl -sk https://localhost/api/v1/auth/login \
 
 # 6. Prometheus 指标
 curl -s http://localhost:9090/api/v1/targets | jq '.data.activeTargets[] | {job: .labels.job, health: .health}'
-# 预期: hms-backend health=up
+# 预期: mes-backend health=up
 ```
 
 ### 8.2 功能验证
@@ -557,7 +557,7 @@ wscat -c "wss://localhost/ws/dashboard?token=$TOKEN" --no-check
 # 预期: 连接成功, 订阅后收到推送
 
 # 验证 Prometheus 指标
-curl -sk https://localhost/metrics | grep hms_http_requests_total
+curl -sk https://localhost/metrics | grep mes_http_requests_total
 # 预期: 有指标输出
 ```
 
@@ -590,7 +590,7 @@ sudo ln -s /snap/bin/certbot /usr/local/bin/certbot
 ```bash
 # 方式 A: standalone 模式 (临时停止 Nginx)
 sudo certbot certonly --standalone \
-    -d hms.yourcompany.com \
+    -d mes.yourcompany.com \
     --email admin@yourcompany.com \
     --agree-tos --no-eff-email
 
@@ -601,7 +601,7 @@ sudo mkdir -p /var/www/certbot
 #       root /var/www/certbot;
 #   }
 sudo certbot certonly --webroot -w /var/www/certbot \
-    -d hms.yourcompany.com \
+    -d mes.yourcompany.com \
     --email admin@yourcompany.com \
     --agree-tos --no-eff-email
 ```
@@ -610,18 +610,18 @@ sudo certbot certonly --webroot -w /var/www/certbot \
 
 ```bash
 # 备份自签证书
-cd /opt/hms/deploy/nginx/certs
-cp hms.crt hms.crt.selfsigned
-cp hms.key hms.key.selfsigned
+cd /opt/mes/deploy/nginx/certs
+cp mes.crt mes.crt.selfsigned
+cp mes.key mes.key.selfsigned
 
 # 复制 Let's Encrypt 证书
-sudo cp /etc/letsencrypt/live/hms.yourcompany.com/fullchain.pem hms.crt
-sudo cp /etc/letsencrypt/live/hms.yourcompany.com/privkey.pem hms.key
-sudo chown $(id -u):$(id -g) hms.crt hms.key
-chmod 600 hms.key
+sudo cp /etc/letsencrypt/live/mes.yourcompany.com/fullchain.pem mes.crt
+sudo cp /etc/letsencrypt/live/mes.yourcompany.com/privkey.pem mes.key
+sudo chown $(id -u):$(id -g) mes.crt mes.key
+chmod 600 mes.key
 
 # 重载 Nginx
-docker compose -f /opt/hms/deploy/compose/docker-compose.prod.yml \
+docker compose -f /opt/mes/deploy/compose/docker-compose.prod.yml \
     exec nginx nginx -s reload
 ```
 
@@ -632,7 +632,7 @@ docker compose -f /opt/hms/deploy/compose/docker-compose.prod.yml \
 sudo certbot renew --dry-run
 
 # 添加 Cron 定时任务 (每天凌晨 3 点检查续期)
-echo "0 3 * * * certbot renew --quiet --deploy-hook 'docker compose -f /opt/hms/deploy/compose/docker-compose.prod.yml exec nginx nginx -s reload'" | sudo tee /etc/cron.d/certbot-renew
+echo "0 3 * * * certbot renew --quiet --deploy-hook 'docker compose -f /opt/mes/deploy/compose/docker-compose.prod.yml exec nginx nginx -s reload'" | sudo tee /etc/cron.d/certbot-renew
 ```
 
 ### 9.5 更新 Nginx server_name
@@ -643,7 +643,7 @@ echo "0 3 * * * certbot renew --quiet --deploy-hook 'docker compose -f /opt/hms/
 server {
     listen 443 ssl;
     http2 on;
-    server_name hms.yourcompany.com;  # ← 改为实际域名
+    server_name mes.yourcompany.com;  # ← 改为实际域名
     # ... 其余不变
 }
 ```
@@ -662,13 +662,13 @@ docker compose -f deploy/compose/docker-compose.prod.yml exec nginx nginx -s rel
 
 | 指标 | 类型 | 说明 |
 |------|------|------|
-| `hms_http_requests_total{status}` | Counter | HTTP 请求总数 (按状态码) |
-| `hms_http_request_duration_ms_bucket` | Histogram | 请求耗时直方图 (9 桶) |
-| `hms_outbox_pending` | Gauge | outbox 待投递消息数 |
-| `hms_mq_queue_messages{queue}` | Gauge | MQ 队列积压 (passive declare) |
-| `hms_partition_days_left{table}` | Gauge | 分区表剩余预建天数 |
-| `hms_ws_subscribers` | Gauge | 当前 WS 订阅者数 |
-| `hms_ws_broadcast_published_total` | Counter | WS 广播消息总数 |
+| `mes_http_requests_total{status}` | Counter | HTTP 请求总数 (按状态码) |
+| `mes_http_request_duration_ms_bucket` | Histogram | 请求耗时直方图 (9 桶) |
+| `mes_outbox_pending` | Gauge | outbox 待投递消息数 |
+| `mes_mq_queue_messages{queue}` | Gauge | MQ 队列积压 (passive declare) |
+| `mes_partition_days_left{table}` | Gauge | 分区表剩余预建天数 |
+| `mes_ws_subscribers` | Gauge | 当前 WS 订阅者数 |
+| `mes_ws_broadcast_published_total` | Counter | WS 广播消息总数 |
 
 ### 10.2 告警规则
 
@@ -689,10 +689,10 @@ docker compose -f deploy/compose/docker-compose.prod.yml exec nginx nginx -s rel
 # Prometheus Web UI
 # 浏览器访问: http://服务器IP:9090
 # 常用查询:
-#   - 请求 QPS:     rate(hms_http_requests_total[5m])
-#   - P95 延迟:     histogram_quantile(0.95, sum(rate(hms_http_request_duration_ms_bucket[5m])) by (le))
-#   - MQ 积压:      hms_mq_queue_messages
-#   - outbox 待投:  hms_outbox_pending
+#   - 请求 QPS:     rate(mes_http_requests_total[5m])
+#   - P95 延迟:     histogram_quantile(0.95, sum(rate(mes_http_request_duration_ms_bucket[5m])) by (le))
+#   - MQ 积压:      mes_mq_queue_messages
+#   - outbox 待投:  mes_outbox_pending
 
 # 告警状态:
 #   http://服务器IP:9090/api/v1/alerts
@@ -703,9 +703,9 @@ docker compose -f deploy/compose/docker-compose.prod.yml exec nginx nginx -s rel
 ### 10.4 日志查看
 
 ```bash
-# 后端日志 (容器内 /app/logs/hms-backend.log)
+# 后端日志 (容器内 /app/logs/mes-backend.log)
 docker compose -f deploy/compose/docker-compose.prod.yml exec backend \
-    tail -f /app/logs/hms-backend.log
+    tail -f /app/logs/mes-backend.log
 
 # 或直接看容器日志
 docker compose -f deploy/compose/docker-compose.prod.yml logs -f backend
@@ -728,7 +728,7 @@ docker compose -f deploy/compose/docker-compose.prod.yml logs -f rabbitmq-1
 
 ```bash
 # 进入工作目录
-cd /opt/hms/deploy/compose
+cd /opt/mes/deploy/compose
 export COMPOSE_FILE=docker-compose.prod.yml
 
 # 查看所有服务状态
@@ -745,7 +745,7 @@ docker compose restart nginx
 docker compose logs -f --tail=100 backend
 
 # 进入容器
-docker compose exec postgres-primary psql -U hms -d hms
+docker compose exec postgres-primary psql -U mes -d mes
 docker compose exec rabbitmq-1 rabbitmqctl status
 docker compose exec redis-1 redis-cli cluster info
 
@@ -758,21 +758,21 @@ docker compose up -d nginx     # 更新前端静态文件后
 
 ```bash
 # 连接数据库 (通过 PgBouncer)
-docker compose exec pgbouncer psql -U hms -d hms
+docker compose exec pgbouncer psql -U mes -d mes
 
 # 直连 primary (管理操作)
-docker compose exec postgres-primary psql -U hms -d hms
+docker compose exec postgres-primary psql -U mes -d mes
 
 # 查看连接数
-docker compose exec postgres-primary psql -U hms -d hms -c \
+docker compose exec postgres-primary psql -U mes -d mes -c \
     "SELECT count(*), state FROM pg_stat_activity GROUP BY state;"
 
 # 查看分区状态
-docker compose exec postgres-primary psql -U hms -d hms -c \
+docker compose exec postgres-primary psql -U mes -d mes -c \
     "SELECT parent_table, premake, next_partition_creation FROM partman.part_config;"
 
 # 手动触发分区维护
-docker compose exec postgres-primary psql -U hms -d hms -c \
+docker compose exec postgres-primary psql -U mes -d mes -c \
     "SELECT partman.run_maintenance_proc();"
 
 # 查看 MQ 队列积压
@@ -785,16 +785,16 @@ docker compose exec rabbitmq-1 rabbitmqctl purge_queue iot.dlq
 ### 11.3 前端更新
 
 ```bash
-cd /opt/hms
+cd /opt/mes
 
 # 重新构建前端镜像
-docker build -f deploy/web/Dockerfile -t hms-web:latest .
-docker build -f deploy/dashboard/Dockerfile -t hms-dashboard:latest .
+docker build -f deploy/web/Dockerfile -t mes-web:latest .
+docker build -f deploy/dashboard/Dockerfile -t mes-dashboard:latest .
 
 # 重新提取静态文件
-docker run --rm -v "$(pwd)/deploy/compose/web-dist:/out" hms-web:latest \
+docker run --rm -v "$(pwd)/deploy/compose/web-dist:/out" mes-web:latest \
     sh -c "cp -r /usr/share/nginx/html/* /out/"
-docker run --rm -v "$(pwd)/deploy/compose/dashboard-dist:/out" hms-dashboard:latest \
+docker run --rm -v "$(pwd)/deploy/compose/dashboard-dist:/out" mes-dashboard:latest \
     sh -c "cp -r /usr/share/nginx/html/* /out/"
 
 # 重载 Nginx
@@ -810,15 +810,15 @@ docker compose -f deploy/compose/docker-compose.prod.yml exec nginx nginx -s rel
 ```bash
 # 全量逻辑备份
 docker compose -f deploy/compose/docker-compose.prod.yml exec -T postgres-primary \
-    pg_dump -U hms -d hms --format=custom -f /tmp/hms_backup.dump
-docker cp $(docker compose -f deploy/compose/docker-compose.prod.yml ps -q postgres-primary):/tmp/hms_backup.dump \
-    /opt/backups/hms_$(date +%Y%m%d_%H%M%S).dump
+    pg_dump -U mes -d mes --format=custom -f /tmp/mes_backup.dump
+docker cp $(docker compose -f deploy/compose/docker-compose.prod.yml ps -q postgres-primary):/tmp/mes_backup.dump \
+    /opt/backups/mes_$(date +%Y%m%d_%H%M%S).dump
 
 # 自动备份 (Cron)
-echo "0 2 * * * docker compose -f /opt/hms/deploy/compose/docker-compose.prod.yml exec -T postgres-primary pg_dump -U hms -d hms --format=custom | gzip > /opt/backups/hms_$(date +\%Y\%m\%d).dump.gz" | sudo tee /etc/cron.d/hms-pg-backup
+echo "0 2 * * * docker compose -f /opt/mes/deploy/compose/docker-compose.prod.yml exec -T postgres-primary pg_dump -U mes -d mes --format=custom | gzip > /opt/backups/mes_$(date +\%Y\%m\%d).dump.gz" | sudo tee /etc/cron.d/mes-pg-backup
 
 # 保留 30 天备份
-echo "0 3 * * * find /opt/backups -name 'hms_*.dump.gz' -mtime +30 -delete" | sudo tee -a /etc/cron.d/hms-pg-backup
+echo "0 3 * * * find /opt/backups -name 'mes_*.dump.gz' -mtime +30 -delete" | sudo tee -a /etc/cron.d/mes-pg-backup
 
 sudo mkdir -p /opt/backups
 ```
@@ -828,7 +828,7 @@ sudo mkdir -p /opt/backups
 ```bash
 # 恢复到指定备份
 docker compose -f deploy/compose/docker-compose.prod.yml exec -T postgres-primary \
-    pg_restore -U hms -d hms --clean --if-exists < /opt/backups/hms_20260815.dump
+    pg_restore -U mes -d mes --clean --if-exists < /opt/backups/mes_20260815.dump
 ```
 
 ### 12.3 Redis 持久化
@@ -839,11 +839,11 @@ Redis Cluster 默认开启 AOF (`--appendonly yes`), 数据持久化到各自卷
 
 ```bash
 # 备份所有配置
-tar czf /opt/backups/hms_config_$(date +%Y%m%d).tar.gz \
-    /opt/hms/deploy/compose/.env \
-    /opt/hms/deploy/compose/config-prod/ \
-    /opt/hms/deploy/nginx/nginx.conf \
-    /opt/hms/deploy/nginx/certs/
+tar czf /opt/backups/mes_config_$(date +%Y%m%d).tar.gz \
+    /opt/mes/deploy/compose/.env \
+    /opt/mes/deploy/compose/config-prod/ \
+    /opt/mes/deploy/nginx/nginx.conf \
+    /opt/mes/deploy/nginx/certs/
 ```
 
 ---
@@ -855,14 +855,14 @@ tar czf /opt/backups/hms_config_$(date +%Y%m%d).tar.gz \
 项目已内置蓝绿发布支持 (`scripts/release_drill.ps1` 为 Windows 版编排, Linux 下手动操作):
 
 ```bash
-cd /opt/hms/deploy/compose
+cd /opt/mes/deploy/compose
 
 # 1. Expand: 启动新版实例 (不同端口, 如 8090)
 # 修改 drogon_config.c.json 指向生产 DB, 启动临时容器
-docker run -d --name hms-backend-green \
+docker run -d --name mes-backend-green \
     --network compose_default \
     -v "$(pwd)/config-prod:/app/config:ro" \
-    hms-backend:latest \
+    mes-backend:latest \
     config/drogon_config.json
 
 # 2. Nginx 灰度: 修改 nginx.conf, 用 split_clients 分流 10% 到 green
@@ -873,16 +873,16 @@ docker run -d --name hms-backend-green \
 # 4. 全量切换: 修改 upstream 指向 green, reload nginx
 
 # 5. Contract: 停止旧版 (blue)
-docker stop hms-backend-green-old
+docker stop mes-backend-green-old
 ```
 
 ### 13.2 快速回滚
 
 ```bash
 # 回滚到旧版镜像
-cd /opt/hms/deploy/compose
+cd /opt/mes/deploy/compose
 docker compose stop backend
-HMS_VERSION=<旧版本号> docker compose up -d backend
+MES_VERSION=<旧版本号> docker compose up -d backend
 ```
 
 ### 13.3 配置热重载
@@ -933,7 +933,7 @@ docker system prune -f
 
 # PG 锁等待
 docker compose -f deploy/compose/docker-compose.prod.yml exec postgres-primary \
-    psql -U hms -d hms -c \
+    psql -U mes -d mes -c \
     "SELECT pid, state, wait_event_type, wait_event, query FROM pg_stat_activity WHERE state != 'idle';"
 ```
 
@@ -941,7 +941,7 @@ docker compose -f deploy/compose/docker-compose.prod.yml exec postgres-primary \
 
 | 资源 | 位置 |
 |------|------|
-| 架构设计文档 | `docs/HMS_Aarchiture_Design.md` |
+| 架构设计文档 | `docs/MES_Aarchiture_Design.md` |
 | 交接文档 | `HANDOVER.md` |
 | 构建进度与踩坑 | `docs/BUILD_PROGRESS.md` |
 | 贡献指南 | `CONTRIBUTING.md` |
@@ -956,7 +956,7 @@ docker compose -f deploy/compose/docker-compose.prod.yml exec postgres-primary \
 □ 2. Docker Engine + Compose + migrate + certbot 安装完成
 □ 3. 防火墙配置 (22/80/443 开放)
 □ 4. 系统参数调优 (文件描述符/TCP)
-□ 5. 源码克隆到 /opt/hms
+□ 5. 源码克隆到 /opt/mes
 □ 6. 后端镜像构建成功 (docker build)
 □ 7. 前端镜像构建成功 (web + dashboard)
 □ 8. 前端静态文件提取到 deploy/compose/web-dist 和 dashboard-dist
@@ -1002,35 +1002,35 @@ docker compose -f deploy/compose/docker-compose.prod.yml exec postgres-primary \
 开发环境用于本地调试, 简化为单实例中间件:
 
 ```bash
-cd /opt/hms
+cd /opt/mes
 
 # 启动开发中间件 (PG 单实例 + Redis 单实例 + RMQ 单节点)
 docker compose -f deploy/compose/docker-compose.dev.yml up -d --build
 
 # 运行迁移
-migrate -path hms-backend/migrations \
-    -database "postgres://hms:hms_dev_pwd@localhost:5432/hms?sslmode=disable" up
+migrate -path mes-backend/migrations \
+    -database "postgres://mes:mes_dev_pwd@localhost:5432/mes?sslmode=disable" up
 
 # 后端编译 (需 vcpkg + CMake)
-cmake -S hms-backend -B hms-backend/build \
+cmake -S mes-backend -B mes-backend/build \
     -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake \
     -DCMAKE_BUILD_TYPE=Release
-cmake --build hms-backend/build -j
+cmake --build mes-backend/build -j
 
 # 启动后端
-./hms-backend/build/hms-backend hms-backend/config/drogon_config.json
+./mes-backend/build/mes-backend mes-backend/config/drogon_config.json
 
 # 前端开发服务器
-cd hms-web && npm install && npm run dev      # → http://localhost:5173
-cd hms-dashboard && npm install && npm run dev # → http://localhost:5174
+cd mes-web && npm install && npm run dev      # → http://localhost:5173
+cd mes-dashboard && npm install && npm run dev # → http://localhost:5174
 ```
 
 开发环境默认凭据: `admin / password`
 开发环境连接串:
-- PG: `postgres://hms:hms_dev_pwd@localhost:5432/hms`
+- PG: `postgres://mes:mes_dev_pwd@localhost:5432/mes`
 - Redis: `localhost:6379`
-- RabbitMQ: `hms/hms_dev_pwd@localhost:5672` (管理台 15672)
+- RabbitMQ: `mes/mes_dev_pwd@localhost:5672` (管理台 15672)
 
 ---
 
-> **文档版本**: 1.0 | **最后更新**: 2026-08-15 | **维护者**: HMS 团队
+> **文档版本**: 1.0 | **最后更新**: 2026-08-15 | **维护者**: MES 团队

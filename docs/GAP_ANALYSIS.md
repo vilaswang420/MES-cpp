@@ -1,4 +1,4 @@
-# HMS 功能缺失分析报告
+# MES 功能缺失分析报告
 
 > 版本: 1.0 | 日期: 2026-08-15 | 基于: 全量源码逐文件审计 (提交至 da6ff0a)
 > 审计范围: 13 个后端 Controller、8 个 Service、9 组迁移、前端 8 页面、大屏看板、IoT 服务、部署配置、脚本、测试
@@ -18,14 +18,14 @@
 
 ## 1. 核心功能缺失项 (阻碍生产使用)
 
-> 以下缺口直接阻碍 HMS 投入生产使用，必须优先解决。
+> 以下缺口直接阻碍 MES 投入生产使用，必须优先解决。
 
 ### 1.1 IoT 真实采集完全缺失
 
 | 维度 | 详情 |
 |------|------|
 | **影响** | 系统无法接入任何真实设备，所有 IoT 数据来自 Python 模拟器 |
-| **位置** | `hms-iot/src/main.cc` L193-195 (显式 TODO) |
+| **位置** | `mes-iot/src/main.cc` L193-195 (显式 TODO) |
 | **缺失内容** | Modbus TCP 轮询采集、OPC-UA 采集、MQTT 网桥、epoll 事件循环、worker 线程池 |
 | **连带影响** | 生产 compose 无 IoT 容器定义，与"三系统独立部署"设计目标矛盾 |
 | **工作量** | 大 (2-4 周，Modbus TCP 优先) |
@@ -36,7 +36,7 @@
 | 维度 | 详情 |
 |------|------|
 | **影响** | 工单完工后应自动停止设备采集，实际两端均未实现，采集不会停止 |
-| **位置** | 后端: `hms-backend/src/mq/StopCollectionHandler.cc` L48-52 (注释 "MVP 日志占位")；IoT 端: `hms-iot/src/main.cc` L195 (TODO) |
+| **位置** | 后端: `mes-backend/src/mq/StopCollectionHandler.cc` L48-52 (注释 "MVP 日志占位")；IoT 端: `mes-iot/src/main.cc` L195 (TODO) |
 | **现状** | 后端收到停采指令后仅 LOG_INFO + ack，不做任何事；IoT 端无消费者 |
 | **工作量** | 中 (3-5 天，两端各实现) |
 | **建议** | 后端 StopCollectionHandler 实际下发 MQ 指令；IoT 端消费 `cmd.#` 队列暂停对应设备轮询 |
@@ -46,7 +46,7 @@
 | 维度 | 详情 |
 |------|------|
 | **影响** | 大屏仅文字 JSON dump，不满足车间可视化需求 |
-| **位置** | `hms-dashboard/src/App.vue` L115 (`<pre>{{ JSON.stringify(production) }}</pre>`)、L121 (`<li>{{ id }}: {{ JSON.stringify(d) }}</li>`) |
+| **位置** | `mes-dashboard/src/App.vue` L115 (`<pre>{{ JSON.stringify(production) }}</pre>`)、L121 (`<li>{{ id }}: {{ JSON.stringify(d) }}</li>`) |
 | **现状** | `package.json` 声明 `echarts ^5.5.1` 依赖但源码中零 import — 纯死依赖 |
 | **缺失** | OEE 仪表盘、产线甘特图、设备拓扑图、质量趋势图、告警时间线 |
 | **工作量** | 中 (1-2 周) |
@@ -57,7 +57,7 @@
 | 维度 | 详情 |
 |------|------|
 | **影响** | 后端 32 个接口已就绪 (IoT 18 + 质量 7 + 集成 7)，但前端无页面，运营人员无法操作 |
-| **位置** | `hms-web/src/pages/` 下无 `iot/`、`quality/`、`integration/` 目录 |
+| **位置** | `mes-web/src/pages/` 下无 `iot/`、`quality/`、`integration/` 目录 |
 | **缺失页面** | 设备管理、传感器管理、告警管理、采集任务管理 (IoT 4 页)；检验标准、检验记录、缺陷管理 (质量 3 页)；ERP/WMS 同步日志、重试 (集成 1-2 页) |
 | **工作量** | 中 (2-3 周，按优先级: 设备 > 质量 > 集成) |
 | **建议** | 复用现有 Ant Design Pro 组件模式，按后端 API 契约逐页开发 |
@@ -67,7 +67,7 @@
 | 维度 | 详情 |
 |------|------|
 | **影响** | 大屏推送的 OEE 为伪 OEE (good_qty/plan_qty)，非设计文档定义的 可用率×表现性×质量 |
-| **位置** | `hms-backend/src/ws/WsBroadcastManager.cc` L110 (伪 OEE 计算) |
+| **位置** | `mes-backend/src/ws/WsBroadcastManager.cc` L110 (伪 OEE 计算) |
 | **缺失** | OEE 自动计算消费者 (MQ 消费者)、可用率/表现性/质量分项计算 |
 | **工作量** | 中 (1 周) |
 | **建议** | 在 MQ 消费者中实现 OEE 计算，基于 iot_raw_data (设备运行时长) + prod_work_orders (产量) + qc_inspections (质量) |
@@ -77,7 +77,7 @@
 | 维度 | 详情 |
 |------|------|
 | **影响** | 登录无防机器人能力，验证码直接在响应体中返回明文 |
-| **位置** | `hms-backend/src/services/AuthService.cc` L340-341 (注释 "MVP 直接返回明文 dev_captcha") |
+| **位置** | `mes-backend/src/services/AuthService.cc` L340-341 (注释 "MVP 直接返回明文 dev_captcha") |
 | **现状** | 后端返回 `{"captcha_id":"dev_captcha","captcha_text":"明文验证码"}`，前端 Login.tsx L9 注释 "MVP dev 环境无验证码" |
 | **工作量** | 小 (1-2 天) |
 | **建议** | 后端实现 SVG/PNG 验证码渲染，前端登录页加验证码输入框 |
@@ -102,7 +102,7 @@
 | 维度 | 详情 |
 |------|------|
 | **影响** | 状态机支持 `Event::Cancel` (WorkOrderService.cc L148-149)，但无 HTTP 路由暴露，API 不可达 |
-| **位置** | `hms-backend/src/controllers/WorkOrderController.cc` L14-33 (有 schedule/release/start/pause/complete/close，无 cancel) |
+| **位置** | `mes-backend/src/controllers/WorkOrderController.cc` L14-33 (有 schedule/release/start/pause/complete/close，无 cancel) |
 | **工作量** | 小 (半天) |
 | **建议** | 添加 `PUT /api/v1/production/work-orders/{id}/cancel` 路由 |
 
@@ -111,7 +111,7 @@
 | 维度 | 详情 |
 |------|------|
 | **影响** | 产线/产品/工艺/计划只有 Create + 只读 List，无编辑/删除；列表无分页 |
-| **位置** | `hms-backend/src/controllers/ProductionController.cc` L17-28 |
+| **位置** | `mes-backend/src/controllers/ProductionController.cc` L17-28 |
 | **具体缺失** | 产线无 PUT/DELETE；产品无 PUT/DELETE；工艺无 PUT/DELETE 且列表只查 `status=1` (草稿不可见)；计划无状态流转端点 (0 草稿/1 已确认/2 已执行/3 已取消)；工位无 CRUD；`plans` 硬编码 `LIMIT 100` (L146) |
 | **工作量** | 中 (3-5 天) |
 | **建议** | 补齐 PUT/DELETE 路由，添加分页参数，实现计划状态流转 |
@@ -131,7 +131,7 @@
 | 维度 | 详情 |
 |------|------|
 | **影响** | 设计要求 operation/start_time/end_time 过滤，实现只有 user_id/module |
-| **位置** | `hms-backend/src/services/SystemService.cc` L704-715 |
+| **位置** | `mes-backend/src/services/SystemService.cc` L704-715 |
 | **工作量** | 小 (半天) |
 | **建议** | 补齐 SQL WHERE 条件和前端筛选表单 |
 
@@ -140,7 +140,7 @@
 | 维度 | 详情 |
 |------|------|
 | **影响** | 设备类型/传感器/告警管理功能缺失 |
-| **位置** | `hms-backend/src/controllers/IotController.cc` |
+| **位置** | `mes-backend/src/controllers/IotController.cc` |
 | **具体缺失** | 设备类型 (`iot_device_types` 表) 无任何管理端点；传感器无 update/delete (只有 list/add, L21-22)；告警只支持 acknowledge (status 0→1)，无 resolved/ignored 处理 (表定义 status 2/3)；无告警自动消除/恢复逻辑；设备心跳超时离线判定未实现 (status 永远不会被置 0/2) |
 | **工作量** | 中 (3-5 天) |
 | **建议** | 补齐传感器 CRUD、告警状态机、设备类型管理；实现设备心跳超时自动离线 |
@@ -150,7 +150,7 @@
 | 维度 | 详情 |
 |------|------|
 | **影响** | 缺陷处置不记录处置人；质检不联动报工流程 |
-| **位置** | `hms-backend/src/services/QcService.cc` L376 (`(void)userId;` — 缺陷处置不记录处置人)；`WorkOrderService.cc` report (工序 quality_check 标志在报工流程中完全不校验) |
+| **位置** | `mes-backend/src/services/QcService.cc` L376 (`(void)userId;` — 缺陷处置不记录处置人)；`WorkOrderService.cc` report (工序 quality_check 标志在报工流程中完全不校验) |
 | **工作量** | 小 (1-2 天) |
 | **建议** | QcService 缺陷处置落库 userId；报工时校验 quality_check=true 的工序必须有关联检验记录 |
 
@@ -161,7 +161,7 @@
 | **影响** | 操作员无法在工位扫码报工/质检，只能用 PC |
 | **位置** | `docs/PAD_MANUAL.md` 有操作手册但无代码实现 |
 | **工作量** | 大 (3-4 周) |
-| **建议** | PWA 方案 (复用后端 API)，或 hms-web 移动适配 |
+| **建议** | PWA 方案 (复用后端 API)，或 mes-web 移动适配 |
 
 ### 2.8 可观测性补齐
 
@@ -196,7 +196,7 @@
 | 维度 | 详情 |
 |------|------|
 | **影响** | 计划创建后永远停在状态 0 (草稿)，无法确认/执行/取消 |
-| **位置** | `hms-backend/src/controllers/ProductionController.cc` (无计划状态流转端点) |
+| **位置** | `mes-backend/src/controllers/ProductionController.cc` (无计划状态流转端点) |
 | **工作量** | 小 (1 天) |
 | **建议** | 添加 `PUT /api/v1/production/plans/{id}/confirm`、`/execute`、`/cancel` 路由 |
 
@@ -227,14 +227,14 @@
 | 维度 | 详情 |
 |------|------|
 | **风险** | AuthService 登录验证缓存以 `password|hash` 明文作 key 存内存，密码驻留进程内存 60s |
-| **位置** | `hms-backend/src/services/AuthService.cc` L24-50 |
+| **位置** | `mes-backend/src/services/AuthService.cc` L24-50 |
 | **建议** | 改用 `username|ip` 作 key，或直接移除缓存 (bcrypt 验证足够快) |
 
 ### 3.4 自签名证书私钥入库
 
 | 维度 | 详情 |
 |------|------|
-| **风险** | `deploy/nginx/certs/hms.key` (私钥) 直接提交进仓库 |
+| **风险** | `deploy/nginx/certs/mes.key` (私钥) 直接提交进仓库 |
 | **建议** | 从仓库移除，加入 `.gitignore`，由部署脚本生成 |
 
 ### 3.5 监控覆盖不完整
@@ -253,12 +253,12 @@
 | **已覆盖** | 仅 5 个纯逻辑单测: bcrypt、CircuitBreaker、DataScopeFilter、JwtUtils、工单状态机 |
 | **建议** | 优先补 WorkOrderService (报工并发)、QcService (缺陷处置)、IntegrationService (熔断/Saga) 单测 |
 
-### 3.7 hms-iot Windows 构建空转
+### 3.7 mes-iot Windows 构建空转
 
 | 维度 | 详情 |
 |------|------|
 | **影响** | healthz 探针在 Windows 下为空循环，形同虚设 |
-| **位置** | `hms-iot/src/main.cc` L38-42 (Windows 构建直接跳过 healthz) |
+| **位置** | `mes-iot/src/main.cc` L38-42 (Windows 构建直接跳过 healthz) |
 | **建议** | Windows 下用 TCP socket 实现或条件编译跳过 + 文档说明 |
 
 ### 3.8 IoT 模拟器掩盖问题
@@ -266,7 +266,7 @@
 | 维度 | 详情 |
 |------|------|
 | **影响** | `scripts/iot_simulator.py` 长期替代真实采集，可能掩盖集成问题 |
-| **建议** | 模拟器标注为"开发用"，生产环境必须部署真实 hms-iot |
+| **建议** | 模拟器标注为"开发用"，生产环境必须部署真实 mes-iot |
 
 ---
 
@@ -356,13 +356,13 @@
 
 本报告基于以下审计手段:
 - **后端**: 13 个 Controller (.cc) + 8 个 Service (.cc) + 9 组迁移 (up/down SQL) 逐文件阅读
-- **前端**: hms-web 8 个页面 + hms-dashboard 全部组件源码审查
-- **IoT**: hms-iot/src/main.cc 全文阅读
+- **前端**: mes-web 8 个页面 + mes-dashboard 全部组件源码审查
+- **IoT**: mes-iot/src/main.cc 全文阅读
 - **部署**: docker-compose.prod.yml + nginx.conf + prometheus 配置审查
 - **脚本**: 12 个脚本 (Python/PowerShell) 全部阅读
 - **测试**: 5 个单元测试 + 6 个 E2E 脚本审查
-- **交叉验证**: 设计文档 (HMS_Architecture_Design.md) 与实现逐节对比
+- **交叉验证**: 设计文档 (MES_Architecture_Design.md) 与实现逐节对比
 
 ---
 
-> **文档版本**: 1.0 | **最后更新**: 2026-08-15 | **维护者**: HMS 团队
+> **文档版本**: 1.0 | **最后更新**: 2026-08-15 | **维护者**: MES 团队

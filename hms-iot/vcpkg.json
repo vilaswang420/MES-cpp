@@ -1,8 +1,0 @@
-{
-    "name": "hms-iot",
-    "version-string": "0.1.0",
-    "dependencies": [
-        "simpleamqpclient",
-        "nlohmann-json"
-    ]
-}

@@ -1,4 +1,4 @@
-# HMS 核心功能完善方案（评审稿 v1.1）
+# MES 核心功能完善方案（评审稿 v1.1）
 
 > 版本: 1.1 | 日期: 2026-08-16 | 状态: **P1+P2+P3 已完成，P4 待实施**
 >
@@ -85,7 +85,7 @@
 | 现状 | 工单报工满量 → 写 `mq_outbox` → 投递到 `iot.cmd.queue` → 消费者仅打日志 → **设备继续采集** |
 | 影响 | 完工后设备仍采集，数据持续入池、产生无主数据与无效告警 |
 | 技术方案 | 后端：`StopCollectionHandler` 解析消息体（work_order_id）→ 查该工单绑定设备（工单→line_id→iot_devices.line_id）→ 逐台向 `iot.exchange/cmd.stop.{device_id}` 发停采指令（复用 `MqProducer`，消息体含 device_id + 幂等键 work_order_id+device_id）；IoT：新增独立消费者（见拓扑变更），收到停采指令后暂停对应设备轮询 |
-| 拓扑变更（评审修正） | topology.json **新增 `iot.cmd.collector.queue`**（binding `cmd.stop.#` + `cmd.dev.#` → hms-iot 独占消费）。原因：现 `cmd.#` 绑唯一 `iot.cmd.queue`，后端 StopCollectionHandler 与 IoT 消费者会 round-robin 竞争，消息可能被任一方独占。**实现补强（P1-2.2）**：`iot.cmd.queue` 绑定从 `cmd.#` 收紧为精确 `cmd.stop_collection`——否则后端二次投递的 `cmd.stop.{device_id}` 会匹配 `cmd.#` 回环进自身队列造成无限循环；同时 `IotService` 设备指令 routing key 由 `cmd.{device_id}` 改为 `cmd.dev.{device_id}`（并入 collector 队列），并在 handler 内加 relayed-key 防御性 ack |
+| 拓扑变更（评审修正） | topology.json **新增 `iot.cmd.collector.queue`**（binding `cmd.stop.#` + `cmd.dev.#` → mes-iot 独占消费）。原因：现 `cmd.#` 绑唯一 `iot.cmd.queue`，后端 StopCollectionHandler 与 IoT 消费者会 round-robin 竞争，消息可能被任一方独占。**实现补强（P1-2.2）**：`iot.cmd.queue` 绑定从 `cmd.#` 收紧为精确 `cmd.stop_collection`——否则后端二次投递的 `cmd.stop.{device_id}` 会匹配 `cmd.#` 回环进自身队列造成无限循环；同时 `IotService` 设备指令 routing key 由 `cmd.{device_id}` 改为 `cmd.dev.{device_id}`（并入 collector 队列），并在 handler 内加 relayed-key 防御性 ack |
 | 实施计划 | ① 后端实现停采指令二次投递（先打点可观测，IoT 消费者未上线前不丢消息）；② topology.json 变更 + compose 同步；③ IoT 实现指令消费与轮询暂停/恢复（随 5.1）；④ E2E：建单→开工→报满→断言设备停止上报 |
 | 验收标准 | ① 工单完工 2s 内目标设备停止上报；② 重启后设备恢复采集；③ 幂等：重复停采指令不报错；④ 消息不被错误竞争消费（独立队列验证） |
 
@@ -271,7 +271,7 @@
 - ✅ 自签证书私钥已在 `.gitignore`（`deploy/nginx/certs/` 不入库，`git ls-files` 已确认）
 - ✅ 密码 bcrypt cost=10 + 工作线程卸载（不阻塞 IO 循环）
 - ✅ CORS：当前同域部署 + Vite 代理，无需全局放开；如需放开仅限配置白名单
-- ❌ **【评审新增】大屏弱默认凭据**：`hms-dashboard/src/composables/useChannel.ts` L31-32 回退 `admin/password` 打进前端 bundle——改为从环境变量注入，生产构建无默认凭据（并入 5.3 一并处理）
+- ❌ **【评审新增】大屏弱默认凭据**：`mes-dashboard/src/composables/useChannel.ts` L31-32 回退 `admin/password` 打进前端 bundle——改为从环境变量注入，生产构建无默认凭据（并入 5.3 一并处理）
 
 ### 4.5 【严重·评审新增】登录/改密明文密码落入审计日志
 
@@ -292,9 +292,9 @@
 
 | 项 | 内容 |
 |----|------|
-| 现状 | `hms-iot/src/main.cc` L193-195 显式 TODO；仅 BatchPublisher + healthz；`config/iot.json` 已定义 Modbus 设备配置格式但无消费者；生产 compose 无 IoT 容器；**CI 无 hms-iot job、无 Dockerfile**（评审确认） |
+| 现状 | `mes-iot/src/main.cc` L193-195 显式 TODO；仅 BatchPublisher + healthz；`config/iot.json` 已定义 Modbus 设备配置格式但无消费者；生产 compose 无 IoT 容器；**CI 无 mes-iot job、无 Dockerfile**（评审确认） |
 | 用户裁决 | **Modbus 轮询最小实现**（不引 libmodbus，自实现 MBAP + FC=0x03 帧，约 300 行） |
-| 技术方案 | ① **协议层**：Modbus TCP 读保持寄存器——MBAP 头（7 字节，transaction id 复用做请求配对）+ 功能码 0x03；按寄存器地址排序合并成最少帧数（单帧 ≤125 寄存器）；**4xxxx 地址换算**：`address 40001 → 协议偏移 0`；② **配置事实源二选一（评审修正）**：短期——启动时经后端 REST `/api/v1/iot/devices` 拉取设备+传感器（register_addr/scale_factor/sample_interval 已在 DB），iot.json 仅留 amqp_url/healthz 等基础设施配置，**禁止文件与 DB 双写**；`device_id/sensor_id` 必须等于 DB 主键，启动时校验拒绝启动；③ **iot.json 补 `unit_id` 字段**（评审确认缺失，Modbus slave id 必需）；④ 采集调度：轮询循环+心跳上报+断连指数退避重连；⑤ 复用 BatchPublisher 发布 `iot.exchange/data.report`，**补 publisher confirms**（main.cc L149 留白）；⑥ `cmd.#` 消费者支持停采/恢复（见 5.2）；⑦ 生产 compose 增加 `hms-iot` 容器（healthcheck 8091）；⑧ OPC-UA/MQTT 二期 |
+| 技术方案 | ① **协议层**：Modbus TCP 读保持寄存器——MBAP 头（7 字节，transaction id 复用做请求配对）+ 功能码 0x03；按寄存器地址排序合并成最少帧数（单帧 ≤125 寄存器）；**4xxxx 地址换算**：`address 40001 → 协议偏移 0`；② **配置事实源二选一（评审修正）**：短期——启动时经后端 REST `/api/v1/iot/devices` 拉取设备+传感器（register_addr/scale_factor/sample_interval 已在 DB），iot.json 仅留 amqp_url/healthz 等基础设施配置，**禁止文件与 DB 双写**；`device_id/sensor_id` 必须等于 DB 主键，启动时校验拒绝启动；③ **iot.json 补 `unit_id` 字段**（评审确认缺失，Modbus slave id 必需）；④ 采集调度：轮询循环+心跳上报+断连指数退避重连；⑤ 复用 BatchPublisher 发布 `iot.exchange/data.report`，**补 publisher confirms**（main.cc L149 留白）；⑥ `cmd.#` 消费者支持停采/恢复（见 5.2）；⑦ 生产 compose 增加 `mes-iot` 容器（healthcheck 8091）；⑧ OPC-UA/MQTT 二期 |
 | 实施计划 | ① 协议层（帧编解码）；② 配置加载（后端 API 拉取 + 校验）；③ 采集调度（轮询+心跳+重连）；④ cmd 消费者；⑤ 容器化+compose+CI job；⑥ 与后端 DataIngestHandler 联调；⑦ scripts/ 增补 `modbus_slave_sim.py`（pymodbus 模拟从站）E2E |
 | 验收标准 | ① 模拟从站数据按周期入 `iot_raw_data`（时序正确）；② 停采指令 2s 内生效；③ 断连自动重连（指数退避）；④ 容器健康检查通过；⑤ 100 设备轮询 P95 < 500ms；⑥ CI 有 iot 编译 job 且全绿 |
 
@@ -328,7 +328,7 @@
 | 项 | 内容 |
 |----|------|
 | 现状 | 后端 32 接口就绪，前端 `src/pages/` 无 iot/quality/integration 目录；路由 App.tsx L24-30 无对应条目；菜单 MainLayout 需同步 |
-| 技术方案 | 复用现有 Ant Design Pro 模式（Table+Modal+Drawer+hasPerm，参照 WorkOrders.tsx）：① iot/：设备列表+详情抽屉（传感器 Tab）+告警管理（确认/消除/忽略）+采集任务 CRUD；② quality/：检验标准、检验记录（含缺陷明细）、缺陷处置（返工/返修/报废/让步）、质量统计（**评审提示：hms-web 未引 echarts/antv，需新增图表库依赖**）；③ integration/：ERP 订单同步（手动触发+日志）、WMS 领料/入库、同步日志+重试 |
+| 技术方案 | 复用现有 Ant Design Pro 模式（Table+Modal+Drawer+hasPerm，参照 WorkOrders.tsx）：① iot/：设备列表+详情抽屉（传感器 Tab）+告警管理（确认/消除/忽略）+采集任务 CRUD；② quality/：检验标准、检验记录（含缺陷明细）、缺陷处置（返工/返修/报废/让步）、质量统计（**评审提示：mes-web 未引 echarts/antv，需新增图表库依赖**）；③ integration/：ERP 订单同步（手动触发+日志）、WMS 领料/入库、同步日志+重试 |
 | 实施计划 | 按 iot → quality → integration 顺序，每模块：**路由（App.tsx）+ 菜单（MainLayout）+ 页面 + 权限码（hasPerm，iot:* 已在 007 迁移种子）+ 请求层（复用 utils/request.ts，无独立 api 层——评审提示，勿新建层）** |
 | 验收标准 | ① 32 接口全被页面覆盖；② 权限按钮级控制生效；③ 无 TS 错误、build 通过 |
 
@@ -354,7 +354,7 @@
 
 | 项 | 内容 |
 |----|------|
-| 方案 | 新建 `hms-pad/`（Vue3 + Vant，PWA）：登录→扫码（二维码规范 `HMS:WO/OP/MAT/DEV/SN:{id}`，Camera API/蓝牙枪）→报工/质检/领料/入库；100% 复用后端 API。数据侧已验证：`prod_work_orders.erp_order_no`（003 L87）、`qc_defects.station_id/operator_id`（005 L65-66）字段齐备 |
+| 方案 | 新建 `mes-pad/`（Vue3 + Vant，PWA）：登录→扫码（二维码规范 `MES:WO/OP/MAT/DEV/SN:{id}`，Camera API/蓝牙枪）→报工/质检/领料/入库；100% 复用后端 API。数据侧已验证：`prod_work_orders.erp_order_no`（003 L87）、`qc_defects.station_id/operator_id`（005 L65-66）字段齐备 |
 | 评审补充 | ① 复用大屏 useChannel.ts 的"专用账号自动登录"与 ws/api token 方案；② 质检操作员权限码 `qc:*` 已在 008 迁移种子，直接复用 |
 | 验收标准 | ① 扫码 2s 内进入对应操作页；② 报工/质检全流程可用；③ 离线缓存基础页面 |
 
@@ -380,12 +380,12 @@
 | 评审硬缺口 | **prometheus.yml 目前只抓 backend:8088**——Grafana 做 node/pg/redis/rmq 面板前必须先补指标源：`node_exporter`（主机）、`postgres_exporter`（PG）、`redis_exporter`（Redis）、rabbitmq prometheus 插件（15692，需在 rabbitmq 配置启用）；否则只有 backend 指标可看 |
 | 验收标准 | ① 触发一条告警可收到推送；② Grafana 面板数据可见（node/pg/redis/rmq 至少各一面板） |
 
-### 6.5 CI/CD Pipeline（评审修正：补 hms-iot）
+### 6.5 CI/CD Pipeline（评审修正：补 mes-iot）
 
 | 项 | 内容 |
 |----|------|
-| 方案 | 在已修复的 `ci.yml` 基础上：① **新增 hms-iot 编译 job**（评审确认现 CI 无 iot job、deploy/ 下无 iot Dockerfile——此缺口应提前到 P4 初期，否则 P4 的 C++ 代码无门禁）；② CD job：build 镜像→push registry→ssh 触发蓝绿部署→health check 回滚 |
-| 验收标准 | ① 推送 main 自动部署到 staging；② 失败自动回滚；③ 蓝绿切换无中断；④ hms-iot 随 CI 编译 |
+| 方案 | 在已修复的 `ci.yml` 基础上：① **新增 mes-iot 编译 job**（评审确认现 CI 无 iot job、deploy/ 下无 iot Dockerfile——此缺口应提前到 P4 初期，否则 P4 的 C++ 代码无门禁）；② CD job：build 镜像→push registry→ssh 触发蓝绿部署→health check 回滚 |
+| 验收标准 | ① 推送 main 自动部署到 staging；② 失败自动回滚；③ 蓝绿切换无中断；④ mes-iot 随 CI 编译 |
 
 ### 6.6 多看板 + WS 会话审计
 
@@ -409,7 +409,7 @@ P4 缺失功能 (4-6w)
   ├─ 5.5 前端 3 模块（并行）
   └─ 5.7 IoT 管理（承接 2.9 B）
 P5 增强 (3-4w)
-  ├─ 6.5 hms-iot CI job 提前到 P4 初期
+  ├─ 6.5 mes-iot CI job 提前到 P4 初期
   ├─ 6.4 监控（Alertmanager/Grafana）提前与 5.6 GA 压测并行
   └─ 其余全部可并行，建议在 P4 中后期启动
 ```
@@ -460,8 +460,8 @@ P5 增强 (3-4w)
 - `CrossCutting.cc:236-263` 登录/改密明文密码入审计 ✅确认（评审新增，P3 严重）
 - `deploy/nginx/certs/` 已在 .gitignore，私钥不入库 ✅（已消除）
 - `CrossCutting.cc` JWT/RBAC fail-closed + 审计参数化 ✅（安全基线良好）
-- `hms-dashboard/useChannel.ts:31-32` 弱默认凭据 admin/password ✅确认（评审新增）
-- `hms-iot` 无 CI job、无 Dockerfile；`iot.json` 缺 unit_id ✅确认（评审新增）
+- `mes-dashboard/useChannel.ts:31-32` 弱默认凭据 admin/password ✅确认（评审新增）
+- `mes-iot` 无 CI job、无 Dockerfile；`iot.json` 缺 unit_id ✅确认（评审新增）
 - `perf/k6/m2_composite.js` 为 10 分钟脚本非 2h ✅确认（评审修正）
 - `docker-compose.prod.yml` 仅 prometheus，无 alertmanager/grafana/exporter ✅确认（评审修正）
 - `contracts/ws-push.schema.json` 仅信封契约，payload 为 object ✅确认（评审提示需子 schema）

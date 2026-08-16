@@ -2,10 +2,10 @@
 # 场景: ① 设备上报 -> iot_devices.last_heartbeat_at 刷新且 status=1 (恢复在线)
 #       ② 心跳超时 (psql 快进到 70s 前, 模拟停报) -> DeviceMonitor 置离线 + OFFLINE 告警落库
 #       ③ 重新上报 -> status 回 1 (恢复在线, 满足验收②)
-# 前置: just dev-up 已启动中间件, hms-backend 运行于 :8088, DeviceMonitor 随进程启动 (10s 扫描周期)。
+# 前置: just dev-up 已启动中间件, mes-backend 运行于 :8088, DeviceMonitor 随进程启动 (10s 扫描周期)。
 $ErrorActionPreference = "Stop"
 [System.Net.ServicePointManager]::Expect100Continue = $false
-$base = if ($env:HMS_API_BASE) { $env:HMS_API_BASE } else { "http://127.0.0.1:8088" }
+$base = if ($env:MES_API_BASE) { $env:MES_API_BASE } else { "http://127.0.0.1:8088" }
 $suffix = Get-Date -Format "HHmmss"
 $pass = 0; $fail = 0
 
@@ -38,7 +38,7 @@ function Assert([bool]$cond, [string]$name) {
 }
 
 function Psql([string]$sql) {
-    return ((docker exec hms-postgres psql -U hms -d hms -t -A -c $sql) | Out-String).Trim()
+    return ((docker exec mes-postgres psql -U mes -d mes -t -A -c $sql) | Out-String).Trim()
 }
 
 Write-Host "==> admin 登录" -ForegroundColor Cyan

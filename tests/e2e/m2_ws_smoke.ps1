@@ -46,11 +46,11 @@ function ConnectWs([string]$url) {
 function RedisPublish([string]$channel, [string]$payloadJson) {
     $tmp = Join-Path $env:TEMP "ws_pub_payload.json"
     [IO.File]::WriteAllText($tmp, $payloadJson)
-    docker cp $tmp hms-redis:/tmp/ws_pub_payload.json | Out-Null
+    docker cp $tmp mes-redis:/tmp/ws_pub_payload.json | Out-Null
     $sh = Join-Path $env:TEMP "ws_pub.sh"
     [IO.File]::WriteAllText($sh, "#!/bin/sh`nredis-cli PUBLISH ws:broadcast:$channel `"`$(cat /tmp/ws_pub_payload.json)`"`n")
-    docker cp $sh hms-redis:/tmp/ws_pub.sh | Out-Null
-    return (docker exec hms-redis sh /tmp/ws_pub.sh)
+    docker cp $sh mes-redis:/tmp/ws_pub.sh | Out-Null
+    return (docker exec mes-redis sh /tmp/ws_pub.sh)
 }
 
 # ---- admin 登录取 token ----

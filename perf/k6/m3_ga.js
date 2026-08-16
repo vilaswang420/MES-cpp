@@ -7,15 +7,15 @@
 // 入库负载 (~4k msg/s) 不在本脚本内: 按 RUNBOOK 用 scripts/iot_simulator.py --burst 并行打。
 //
 // 与 m2_composite.js (10min 校准版) 的差异:
-//   1. duration 参数化: HMS_GA_SECONDS (默认 7200 = 2h), 便于 smoke/全量复用同一脚本
-//   2. JWT 2h 过期 -> REST 每 VU 本地 token 90min 自动轮换 (HMS_GA_TOKEN_TTL_S)
+//   1. duration 参数化: MES_GA_SECONDS (默认 7200 = 2h), 便于 smoke/全量复用同一脚本
+//   2. JWT 2h 过期 -> REST 每 VU 本地 token 90min 自动轮换 (MES_GA_TOKEN_TTL_S)
 //      (WS 仅握手时验 token, 连接建立后存活整个时长, 无需轮换)
 //   3. WS 1000 连接改为 k6 原生 ws 场景, 断连率进 thresholds (不再依赖外部 ws_load.py)
 //   4. 阈值按 GA 口径收紧: 错误率 0.5% -> 0.1%, P95 369ms(基线*1.3) -> 500ms(GA 线)
 //
 // 用法:
-//   smoke (10min): k6 run -e HMS_GA_SECONDS=600 -e HMS_GA_WS_VUS=100 perf/k6/m3_ga.js
-//   全量  (2h)   : k6 run -e HMS_API_BASE=http://<server>:8088 perf/k6/m3_ga.js
+//   smoke (10min): k6 run -e MES_GA_SECONDS=600 -e MES_GA_WS_VUS=100 perf/k6/m3_ga.js
+//   全量  (2h)   : k6 run -e MES_API_BASE=http://<server>:8088 perf/k6/m3_ga.js
 //   (执行步骤/环境要求见 perf/k6/M3_GA_RUNBOOK.md; 泄漏趋势另跑 ga_leak_monitor.py)
 import http from "k6/http";
 import ws from "k6/ws";
@@ -23,19 +23,19 @@ import { check, sleep } from "k6";
 import { Counter, Rate } from "k6/metrics";
 import exec from "k6/execution";
 
-const BASE = __ENV.HMS_API_BASE || "http://127.0.0.1:8088";
-const WS_BASE = __ENV.HMS_WS_BASE || BASE.replace(/^http/, "ws");
+const BASE = __ENV.MES_API_BASE || "http://127.0.0.1:8088";
+const WS_BASE = __ENV.MES_WS_BASE || BASE.replace(/^http/, "ws");
 const HEADERS = { "Content-Type": "application/json" };
 
 // ---- 参数 (全部可用 -e 覆盖, 默认值 = GA 标准口径) ----
-const GA_SECONDS = parseInt(__ENV.HMS_GA_SECONDS || "7200", 10); // 总稳态时长, 默认 2h
-const REST_VUS = parseInt(__ENV.HMS_GA_REST_VUS || "400", 10);
-const WS_VUS = parseInt(__ENV.HMS_GA_WS_VUS || "1000", 10);
-const TOKEN_TTL_MS = parseInt(__ENV.HMS_GA_TOKEN_TTL_S || "5400", 10) * 1000; // 90min < 2h JWT
-const RAMP_UP_S = parseInt(__ENV.HMS_GA_RAMP_S || "300", 10); // 5min 爬坡
+const GA_SECONDS = parseInt(__ENV.MES_GA_SECONDS || "7200", 10); // 总稳态时长, 默认 2h
+const REST_VUS = parseInt(__ENV.MES_GA_REST_VUS || "400", 10);
+const WS_VUS = parseInt(__ENV.MES_GA_WS_VUS || "1000", 10);
+const TOKEN_TTL_MS = parseInt(__ENV.MES_GA_TOKEN_TTL_S || "5400", 10) * 1000; // 90min < 2h JWT
+const RAMP_UP_S = parseInt(__ENV.MES_GA_RAMP_S || "300", 10); // 5min 爬坡
 
 const HOLD_S = GA_SECONDS - RAMP_UP_S - 120; // 爬坡+降坡之外的稳态保持
-if (HOLD_S <= 0) throw new Error(`HMS_GA_SECONDS=${GA_SECONDS} 太短 (需 > 爬坡${RAMP_UP_S}s + 降坡120s)`);
+if (HOLD_S <= 0) throw new Error(`MES_GA_SECONDS=${GA_SECONDS} 太短 (需 > 爬坡${RAMP_UP_S}s + 降坡120s)`);
 
 const apiError = new Rate("api_error");
 const wsConnects = new Counter("ws_connects");

@@ -3,19 +3,19 @@
 #   场景 A (默认) 降级链路: 杀 WS 后端实例 -> WS 连续重连失败 (等价前端 retry>=3 切降级态)
 #                         -> 降级轮询源不可达 -> 恢复实例 -> 30s 内 WS 回连成功 + 推送恢复 (前端回切)
 #   场景 B (-LoadTest)    1000 WS 连接压测回归 (scripts/ws_load.py --mode load)
-# 前置: just dev-up 已启动中间件与迁移, hms-backend 运行于 :8088 (默认)。
+# 前置: just dev-up 已启动中间件与迁移, mes-backend 运行于 :8088 (默认)。
 #       -BackendCmd 指定后端可执行文件时, 场景 A 自动完成 杀->重启 闭环;
 #       不指定且后端被外部编排恢复时, 脚本在等待窗口内探测恢复即可。
 # 用法:
 #   powershell -File tests/e2e/m2_dashboard_fallback.ps1
-#   powershell -File tests/e2e/m2_dashboard_fallback.ps1 -BackendCmd "E:\...\hms-backend.exe" -LoadTest
+#   powershell -File tests/e2e/m2_dashboard_fallback.ps1 -BackendCmd "E:\...\mes-backend.exe" -LoadTest
 param(
     [string]$BackendCmd = "",
     [switch]$LoadTest
 )
 $ErrorActionPreference = "Stop"
 [System.Net.ServicePointManager]::Expect100Continue = $false
-$base = if ($env:HMS_API_BASE) { $env:HMS_API_BASE } else { "http://127.0.0.1:8088" }
+$base = if ($env:MES_API_BASE) { $env:MES_API_BASE } else { "http://127.0.0.1:8088" }
 $pass = 0; $fail = 0
 $degradedRetry = 3        # 前端 useChannel: retry>=3 置降级态 (连续重连失败)
 $recoverTimeoutSec = 30   # 恢复窗口: 后端重启后 WS 回连成功必须 < 30s
@@ -88,13 +88,13 @@ if ($null -ne $ws) {
 
 # A2. 杀后端实例 (WS/REST 同实例, 等价 WS 链路不可达)
 Write-Host "--- A2 杀后端实例 ---"
-$proc = Get-Process -Name "hms-backend" -ErrorAction SilentlyContinue | Select-Object -First 1
+$proc = Get-Process -Name "mes-backend" -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($proc) {
     Stop-Process -Id $proc.Id -Force
     $proc.WaitForExit(10000) | Out-Null
     Check "后端进程已停止 (pid=$($proc.Id))" (-not (Get-Process -Id $proc.Id -ErrorAction SilentlyContinue))
 } else {
-    Write-Host "  [SKIP] 未发现 hms-backend 进程, 假定外部编排已停止" -ForegroundColor Yellow
+    Write-Host "  [SKIP] 未发现 mes-backend 进程, 假定外部编排已停止" -ForegroundColor Yellow
 }
 
 # A3. 前端降级判定: 连续 $degradedRetry 次重连失败 (retry>=3 -> degraded=true)
@@ -158,7 +158,7 @@ if ($null -ne $ws) {
 # ================ 场景 B: 1000 WS 连接压测回归 ================
 if ($LoadTest) {
     Write-Host "`n== 场景 B: 1000 WS 连接压测回归 ==" -ForegroundColor Cyan
-    $py = if ($env:HMS_PY) { $env:HMS_PY } else { "python" }
+    $py = if ($env:MES_PY) { $env:MES_PY } else { "python" }
     $out = & $py scripts/ws_load.py --token $token --mode load --connections 1000 --duration 60 2>&1 | Out-String
     Write-Host $out
     try {

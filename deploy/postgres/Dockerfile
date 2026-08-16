@@ -24,9 +24,9 @@ RUN set -eux; \
 
 COPY initdb/ /docker-entrypoint-initdb.d/
 
-# pg_cron 必须注册到 shared_preload_libraries; cron 库内跑在 hms 库
-ENV POSTGRES_DB=hms \
-     POSTGRES_USER=hms \
-     POSTGRES_PASSWORD=hms_dev_pwd
+# pg_cron 必须注册到 shared_preload_libraries; cron 库内跑在 mes 库
+ENV POSTGRES_DB=mes \
+     POSTGRES_USER=mes \
+     POSTGRES_PASSWORD=mes_dev_pwd
 
-CMD ["postgres", "-c", "shared_preload_libraries=pg_cron", "-c", "cron.database_name=hms"]
+CMD ["postgres", "-c", "shared_preload_libraries=pg_cron", "-c", "cron.database_name=mes"]

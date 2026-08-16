@@ -1,6 +1,6 @@
-# HMS 开发维护指南
+# MES 开发维护指南
 
-> 版本: 1.0 | 日期: 2026-08-15 | 适用: HMS M3 定稿代码库
+> 版本: 1.0 | 日期: 2026-08-15 | 适用: MES M3 定稿代码库
 
 ---
 
@@ -28,8 +28,8 @@
 ### 1.1 Monorepo 结构
 
 ```
-New-HMS/
-├── hms-backend/             # C++ Drogon 后端 (REST + WS + MQ 消费)
+New-MES/
+├── mes-backend/             # C++ Drogon 后端 (REST + WS + MQ 消费)
 │   ├── src/
 │   │   ├── controllers/      # HTTP 路由层 (10 个 Controller)
 │   │   ├── services/         # 业务逻辑层 (8 个 Service)
@@ -44,19 +44,19 @@ New-HMS/
 │   ├── migrations/           # 数据库迁移 (9 套 up/down)
 │   ├── vcpkg.json            # C++ 依赖清单
 │   └── CMakeLists.txt
-├── hms-web/                  # React 18 管理后台
+├── mes-web/                  # React 18 管理后台
 │   ├── src/
 │   │   ├── pages/            # 8 个功能页面
 │   │   ├── layouts/          # 主布局 (菜单按权限动态过滤)
 │   │   ├── store/            # 认证状态
 │   │   └── utils/            # HTTP 请求封装
 │   └── vite.config.ts
-├── hms-dashboard/            # Vue3 大屏看板
+├── mes-dashboard/            # Vue3 大屏看板
 │   ├── src/
 │   │   ├── App.vue           # 三频道布局
 │   │   └── composables/      # useChannel (WS 订阅 + 降级)
 │   └── vite.config.ts
-├── hms-iot/                  # IoT 采集服务 (C++ 骨架)
+├── mes-iot/                  # IoT 采集服务 (C++ 骨架)
 ├── contracts/                # JSON Schema 契约 (3 个)
 ├── deploy/                   # Docker 编排 + Nginx + Prometheus
 ├── scripts/                  # 工具脚本 (12 个)
@@ -72,10 +72,10 @@ New-HMS/
 
 | 子系统 | 技术 | 版本 | 入口 |
 |--------|------|------|------|
-| 后端 | C++ Drogon | 1.9.13 | `hms-backend/src/main.cc` |
-| 管理后台 | React + TS + Vite + AntD | 18.3 / 5.4 / 5.20 | `hms-web/src/main.tsx` |
-| 大屏看板 | Vue3 + TS + Vite + ECharts | 3.4 / 5.5 | `hms-dashboard/src/main.ts` |
-| IoT 采集 | C++ (SimpleAmqpClient) | C++20 | `hms-iot/src/main.cc` |
+| 后端 | C++ Drogon | 1.9.13 | `mes-backend/src/main.cc` |
+| 管理后台 | React + TS + Vite + AntD | 18.3 / 5.4 / 5.20 | `mes-web/src/main.tsx` |
+| 大屏看板 | Vue3 + TS + Vite + ECharts | 3.4 / 5.5 | `mes-dashboard/src/main.ts` |
+| IoT 采集 | C++ (SimpleAmqpClient) | C++20 | `mes-iot/src/main.cc` |
 | 数据库 | PostgreSQL | 16 (分区+pg_partman+pg_cron) | — |
 | 缓存 | Redis | 7 (生产 Cluster) | — |
 | 消息队列 | RabbitMQ | 3.13 (生产 3 节点集群) | — |
@@ -121,22 +121,22 @@ docker compose -f deploy/compose/docker-compose.dev.yml up -d --build
 docker ps --format "table {{.Names}}\t{{.Status}}"
 
 # 4. 运行迁移
-$mig = ((Get-Location).Path -replace '\\','/') + '/hms-backend/migrations'
-migrate -path $mig -database 'postgres://hms:hms_dev_pwd@localhost:5432/hms?sslmode=disable' up
+$mig = ((Get-Location).Path -replace '\\','/') + '/mes-backend/migrations'
+migrate -path $mig -database 'postgres://mes:mes_dev_pwd@localhost:5432/mes?sslmode=disable' up
 
 # 5. 编译后端
-cmake -S hms-backend -B hms-backend/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake
-cmake --build hms-backend/build --config Release -j
+cmake -S mes-backend -B mes-backend/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake
+cmake --build mes-backend/build --config Release -j
 
 # 6. 运行测试
-ctest --test-dir hms-backend/build -C Release --output-on-failure
+ctest --test-dir mes-backend/build -C Release --output-on-failure
 
 # 7. 启动后端
-./hms-backend/build/Release/hms-backend.exe hms-backend/config/drogon_config.json
+./mes-backend/build/Release/mes-backend.exe mes-backend/config/drogon_config.json
 
 # 8. 启动前端 (新终端)
-cd hms-web; npm install; npm run dev      # → localhost:5173
-cd hms-dashboard; npm install; npm run dev # → localhost:5174
+cd mes-web; npm install; npm run dev      # → localhost:5173
+cd mes-dashboard; npm install; npm run dev # → localhost:5174
 ```
 
 ### 2.3 Linux 开发环境
@@ -171,9 +171,9 @@ just perf-m1         # k6 压测
 
 | 服务 | 连接串 |
 |------|--------|
-| PostgreSQL | `postgres://hms:hms_dev_pwd@localhost:5432/hms` |
+| PostgreSQL | `postgres://mes:mes_dev_pwd@localhost:5432/mes` |
 | Redis | `localhost:6379` |
-| RabbitMQ | `amqp://hms:hms_dev_pwd@localhost:5672/` (管理台 15672) |
+| RabbitMQ | `amqp://mes:mes_dev_pwd@localhost:5672/` (管理台 15672) |
 | 后端 | `http://localhost:8088` |
 | 管理后台 | `http://localhost:5173` (Vite dev proxy → 8088) |
 | 大屏看板 | `http://localhost:5174` (Vite dev proxy → 8088) |
@@ -238,7 +238,7 @@ HTTP 请求 → Controller → Service → DB/Redis/MQ
 
 ### 3.4 前端页面清单
 
-**hms-web (React 管理后台)**:
+**mes-web (React 管理后台)**:
 
 | 页面 | 路由 | 功能 |
 |------|------|------|
@@ -251,7 +251,7 @@ HTTP 请求 → Controller → Service → DB/Redis/MQ
 | 权限管理 | `/system/permissions` | 只读权限树 |
 | 审计日志 | `/system/audit-logs` | 分页只读查询 |
 
-**hms-dashboard (Vue3 大屏)**:
+**mes-dashboard (Vue3 大屏)**:
 
 | 功能 | 说明 |
 |------|------|
@@ -276,9 +276,9 @@ HTTP 请求 → Controller → Service → DB/Redis/MQ
 ADD_METHOD_TO(IotController::createMaintenance,
               "/api/v1/iot/devices/{id}/maintenance",
               Post,
-              "hms::JwtMiddleware",      // JWT 鉴权
-              "hms::RbacMiddleware",      // RBAC 权限检查
-              "hms::AuditMiddleware");    // 操作审计
+              "mes::JwtMiddleware",      // JWT 鉴权
+              "mes::RbacMiddleware",      // RBAC 权限检查
+              "mes::AuditMiddleware");    // 操作审计
 ```
 
 2. **权限映射注册** — 在 `src/middlewares/perm_routes.cc` 中注册:
@@ -330,7 +330,7 @@ drogon::Task<Json::Value> MyService::doSomething(int64_t id) {
         co_return result;
     } catch (const std::exception& e) {
         // drogon 自动 rollback
-        throw hms::ApiException(500, e.what());
+        throw mes::ApiException(500, e.what());
     }
 }
 ```
@@ -341,8 +341,8 @@ drogon::Task<Json::Value> MyService::doSomething(int64_t id) {
 // ✅ 正确: 数值/布尔用 SqlArg 文本绑定
 auto result = co_await trans->execSqlCoro(
     "SELECT * FROM prod_work_orders WHERE status = $1 AND line_id = $2",
-    hms::SqlArg(status),    // smallint 列: 文本绑定避免二进制格式不匹配
-    hms::SqlArg(lineId));
+    mes::SqlArg(status),    // smallint 列: 文本绑定避免二进制格式不匹配
+    mes::SqlArg(lineId));
 
 // ❌ 错误: 裸传数值 (drogon 按 C++ 字节宽度二进制发送, smallint 列报错)
 auto result = co_await trans->execSqlCoro(
@@ -352,7 +352,7 @@ auto result = co_await trans->execSqlCoro(
 
 ### 4.4 代码风格
 
-- C++20, clang-format (配置见 `hms-backend/.clang-format`)
+- C++20, clang-format (配置见 `mes-backend/.clang-format`)
 - Service 层用 Drogon 协程, 回调只允许出现在底层插件
 - 时间一律 UTC ISO 8601 带 `Z`
 - 错误 JSON 只允许全局错误拦截器产出, 业务代码抛 `ApiException`
@@ -364,7 +364,7 @@ auto result = co_await trans->execSqlCoro(
 
 ## 5. 前端开发规范 (React + Vue3)
 
-### 5.1 React (hms-web)
+### 5.1 React (mes-web)
 
 **技术约定**:
 - React 18.3 + TypeScript 5.5 + Vite 5.4 + Ant Design 5.20
@@ -408,7 +408,7 @@ const result = await http.post('/api/v1/iot/devices', { device_code: 'CNC-001', 
 // 401 自动跳转登录页
 ```
 
-### 5.2 Vue3 (hms-dashboard)
+### 5.2 Vue3 (mes-dashboard)
 
 **技术约定**:
 - Vue 3.4 + TypeScript 5.5 + Vite 5.4
@@ -451,12 +451,12 @@ onMounted(() => {
 # 例: 010_add_maintenance_tables.up.sql / 010_add_maintenance_tables.down.sql
 
 # 迁移路径必须用正斜杠
-migrate -path hms-backend/migrations \
-    -database "postgres://hms:hms_dev_pwd@localhost:5432/hms?sslmode=disable" up
+migrate -path mes-backend/migrations \
+    -database "postgres://mes:mes_dev_pwd@localhost:5432/mes?sslmode=disable" up
 
 # 回退一步 (仅开发)
-migrate -path hms-backend/migrations \
-    -database "postgres://hms:hms_dev_pwd@localhost:5432/hms?sslmode=disable" down 1
+migrate -path mes-backend/migrations \
+    -database "postgres://mes:mes_dev_pwd@localhost:5432/mes?sslmode=disable" down 1
 
 # 往返测试
 just migrate-roundtrip  # 或: powershell -File scripts/test-migrate-roundtrip.ps1
@@ -481,7 +481,7 @@ just migrate-roundtrip  # 或: powershell -File scripts/test-migrate-roundtrip.p
 - pg_partman 5.x 分区后缀固定 `_pYYYYMMDD`, 手工预建分区必须对齐
 - DO 块内禁止复用外层 `$$` 标签, 用 `$cron$` 等唯一标签
 - 列名避开 PG 保留字 (`offset`/`user`/`order` 等)
-- `hms` 库被 pg_cron worker 占用时无法 `DROP DATABASE`, 重置用 `DROP SCHEMA public CASCADE`
+- `mes` 库被 pg_cron worker 占用时无法 `DROP DATABASE`, 重置用 `DROP SCHEMA public CASCADE`
 - 数据卷若先于定制镜像初始化, 需手工 `CREATE EXTENSION pg_partman/pg_cron`
 
 ---
@@ -536,8 +536,8 @@ iot.exchange (topic)
 ├── data.#           → iot.data.queue            (数据入库消费)
 ├── alert.#          → iot.alert.queue           (告警处理消费)
 ├── cmd.stop_collection → iot.cmd.queue          (后端 StopCollectionHandler 二次投递, 精确 key 防回环)
-├── cmd.stop.#       → iot.cmd.collector.queue   (停采指令, hms-iot 独占消费)
-├── cmd.dev.#        → iot.cmd.collector.queue   (设备指令, hms-iot 独占消费)
+├── cmd.stop.#       → iot.cmd.collector.queue   (停采指令, mes-iot 独占消费)
+├── cmd.dev.#        → iot.cmd.collector.queue   (设备指令, mes-iot 独占消费)
 └── retry.data       → iot.retry.queue           (TTL 10s → 回 iot.exchange)
 
 iot.dlx (fanout)
@@ -571,10 +571,10 @@ python scripts/check_mq_topology.py
 python scripts/apply_mq_topology.py
 
 # 查看队列状态
-docker exec hms-rabbitmq rabbitmqctl list_queues name messages consumers
+docker exec mes-rabbitmq rabbitmqctl list_queues name messages consumers
 
 # 清空 DLQ (谨慎)
-docker exec hms-rabbitmq rabbitmqctl purge_queue iot.dlq
+docker exec mes-rabbitmq rabbitmqctl purge_queue iot.dlq
 ```
 
 ---
@@ -584,7 +584,7 @@ docker exec hms-rabbitmq rabbitmqctl purge_queue iot.dlq
 ### 9.1 连接
 
 ```
-wss://hms.example.com/ws/dashboard?token=JWT_TOKEN
+wss://mes.example.com/ws/dashboard?token=JWT_TOKEN
 ```
 
 - 浏览器 WS 无法带 Authorization 头, 用 query token 鉴权
@@ -630,7 +630,7 @@ WS 连续重连失败 ≥ 3 次 → 切 REST 10s 轮询, WS 恢复后自动回�
 
 | 类型 | 工具 | 位置 | 运行命令 |
 |------|------|------|---------|
-| 单元测试 | CTest | `hms-backend/tests/` | `ctest --test-dir hms-backend/build -C Release` |
+| 单元测试 | CTest | `mes-backend/tests/` | `ctest --test-dir mes-backend/build -C Release` |
 | E2E (M1) | PowerShell | `tests/e2e/m1_flow.ps1` | `just e2e-m1` |
 | 并发超报 | PowerShell | `tests/e2e/concurrent_report.ps1` | `just e2e-concurrent-report` |
 | M2 冒烟 | PowerShell | `tests/e2e/m2_*.ps1` | 手动执行 |
@@ -663,29 +663,29 @@ WS 连续重连失败 ≥ 3 次 → 切 REST 10s 轮询, WS 恢复后自动回�
 
 ```bash
 # Windows (MSVC)
-cmake -S hms-backend -B hms-backend/build \
+cmake -S mes-backend -B mes-backend/build \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake
-cmake --build hms-backend/build --config Release -j
+cmake --build mes-backend/build --config Release -j
 
 # Linux (GCC)
-cmake -S hms-backend -B hms-backend/build -G Ninja \
+cmake -S mes-backend -B mes-backend/build -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake
-cmake --build hms-backend/build -j$(nproc)
+cmake --build mes-backend/build -j$(nproc)
 
 # Docker (生产镜像)
-docker build -f deploy/backend/Dockerfile -t hms-backend:latest .
+docker build -f deploy/backend/Dockerfile -t mes-backend:latest .
 ```
 
 ### 11.2 前端构建
 
 ```bash
 # 管理后台
-cd hms-web && npm ci && npm run build    # → dist/
+cd mes-web && npm ci && npm run build    # → dist/
 
 # 大屏看板 (注意子路径)
-cd hms-dashboard && npm ci && npx vite build --base=/dashboard/  # → dist/
+cd mes-dashboard && npm ci && npx vite build --base=/dashboard/  # → dist/
 ```
 
 ### 11.3 CI 门禁清单
@@ -710,22 +710,22 @@ cd hms-dashboard && npm ci && npx vite build --base=/dashboard/  # → dist/
 curl http://localhost:8088/healthz
 
 # 查看 Prometheus 指标
-curl http://localhost:8088/metrics | grep hms_
+curl http://localhost:8088/metrics | grep mes_
 
 # 查看 MQ 积压
-docker exec hms-rabbitmq rabbitmqctl list_queues name messages consumers
+docker exec mes-rabbitmq rabbitmqctl list_queues name messages consumers
 
 # 查看 outbox 待投递
-docker exec hms-postgres psql -U hms -d hms -c \
+docker exec mes-postgres psql -U mes -d mes -c \
     "SELECT count(*), min(created_at) FROM mq_outbox WHERE status = 0;"
 
 # 查看 Redis 缓存
-docker exec hms-redis redis-cli keys "perm:*" | head
-docker exec hms-redis redis-cli get "perm:user:1"
-docker exec hms-redis redis-cli get "device:latest:10"
+docker exec mes-redis redis-cli keys "perm:*" | head
+docker exec mes-redis redis-cli get "perm:user:1"
+docker exec mes-redis redis-cli get "device:latest:10"
 
 # WS leader 租约
-docker exec hms-redis redis-cli get "ws:realtime:leader"
+docker exec mes-redis redis-cli get "ws:realtime:leader"
 ```
 
 ### 12.2 双实例调试
@@ -735,10 +735,10 @@ docker exec hms-redis redis-cli get "ws:realtime:leader"
 powershell -File scripts/start_dual_instances.ps1
 
 # 实例 A (直连 PG 5432)
-./hms-backend/build/Release/hms-backend.exe hms-backend/config/drogon_config.json
+./mes-backend/build/Release/mes-backend.exe mes-backend/config/drogon_config.json
 
 # 实例 B (经 PgBouncer 6432)
-./hms-backend/build/Release/hms-backend.exe hms-backend/config/drogon_config.b.json
+./mes-backend/build/Release/mes-backend.exe mes-backend/config/drogon_config.b.json
 
 # 验证跨实例 WS 广播
 # 连 8088 的客户端应收到 8089 发布的推送
@@ -781,7 +781,7 @@ curl http://localhost:9095/__control -d '{"action":"reset"}'
 3. **Service**: 在 `src/services/` 实现 XxxService
 4. **Controller**: 在 `src/controllers/` 实现 XxxController, 用 ADD_METHOD_TO 注册路由
 5. **权限映射**: 在 `src/middlewares/perm_routes.cc` 注册每条路由
-6. **前端**: 在 `hms-web/src/pages/` 创建页面, 注册路由, 添加菜单
+6. **前端**: 在 `mes-web/src/pages/` 创建页面, 注册路由, 添加菜单
 7. **测试**: 编写冒烟测试
 8. **验证**: `just check-perm-map` + 冒烟测试 + 迁移往返
 
@@ -834,7 +834,7 @@ UPDATE prod_work_orders SET extra_info = '{}' WHERE extra_info IS NULL;
 ### Drogon 运行时 (最易踩)
 
 18. Redis `execCommandAsync` 是 C 变参: `%s` 必须传 `.c_str()`
-19. 数值绑定参数一律用 `hms::SqlArg()` 文本化
+19. 数值绑定参数一律用 `mes::SqlArg()` 文本化
 20. 协程事务响应前必须 `co_await commitAwait(std::move(trans))`
 21. `Task` 是惰性协程, fire-and-forget 必须用 `drogon::AsyncTask`
 28. 字符串字面量在前的 `+` 遇 `auto` 推导 `const char*` 即指针加法
@@ -855,4 +855,4 @@ UPDATE prod_work_orders SET extra_info = '{}' WHERE extra_info IS NULL;
 
 ---
 
-> **文档版本**: 1.0 | **最后更新**: 2026-08-15 | **维护者**: HMS 团队
+> **文档版本**: 1.0 | **最后更新**: 2026-08-15 | **维护者**: MES 团队

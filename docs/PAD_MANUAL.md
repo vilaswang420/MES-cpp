@@ -1,4 +1,4 @@
-# HMS 手持 PAD 扫码接入 / 日常操作手册
+# MES 手持 PAD 扫码接入 / 日常操作手册
 
 > 版本: 1.0 | 日期: 2026-08-15 | 适用: 车间操作员、质检员、仓库管理员
 
@@ -55,7 +55,7 @@
               └──────┬──────┘
                      │
               ┌──────▼──────┐
-              │  HMS 后端    │ REST API
+              │  MES 后端    │ REST API
               │  (Drogon)   │ + WebSocket
               └──────┬──────┘
                      │
@@ -71,15 +71,15 @@
 
 ### 1.3 二维码规范
 
-HMS 系统中使用的二维码统一遵循以下编码规则:
+MES 系统中使用的二维码统一遵循以下编码规则:
 
 | 二维码类型 | 编码格式 | 示例 | 扫码后行为 |
 |-----------|---------|------|-----------|
-| 工单码 | `HMS:WO:{work_order_id}` | `HMS:WO:50` | 跳转工单详情页 |
-| 工序码 | `HMS:OP:{operation_id}` | `HMS:OP:101` | 跳转报工页面 |
-| 物料码 | `HMS:MAT:{material_code}` | `HMS:MAT:MAT-A001` | 跳转领料核对页 |
-| 设备码 | `HMS:DEV:{device_id}` | `HMS:DEV:10` | 跳转设备状态页 |
-| 产品序列码 | `HMS:SN:{serial_no}` | `HMS:SN:SN20260815-001` | 追溯查询 |
+| 工单码 | `MES:WO:{work_order_id}` | `MES:WO:50` | 跳转工单详情页 |
+| 工序码 | `MES:OP:{operation_id}` | `MES:OP:101` | 跳转报工页面 |
+| 物料码 | `MES:MAT:{material_code}` | `MES:MAT:MAT-A001` | 跳转领料核对页 |
+| 设备码 | `MES:DEV:{device_id}` | `MES:DEV:10` | 跳转设备状态页 |
+| 产品序列码 | `MES:SN:{serial_no}` | `MES:SN:SN20260815-001` | 追溯查询 |
 
 > 工单二维码可在管理后台工单详情页生成 (未来实现), 或由系统在工单下达时自动打印。
 
@@ -103,13 +103,13 @@ HMS 系统中使用的二维码统一遵循以下编码规则:
 
 PAD 只需安装浏览器 (Chrome / Edge), 无需安装 App。系统通过 PWA (Progressive Web App) 方式提供:
 
-1. 在浏览器中访问 HMS 系统地址: `https://hms.yourcompany.com/pad/`
+1. 在浏览器中访问 MES 系统地址: `https://mes.yourcompany.com/pad/`
 2. 登录后浏览器会提示 "添加到主屏幕"
-3. 点击添加后, PAD 桌面出现 HMS 图标, 以后点击即可全屏启动
+3. 点击添加后, PAD 桌面出现 MES 图标, 以后点击即可全屏启动
 
 ### 2.3 网络要求
 
-- PAD 需连接车间 Wi-Fi, 能访问 HMS 服务器 (443 端口)
+- PAD 需连接车间 Wi-Fi, 能访问 MES 服务器 (443 端口)
 - 网络延迟建议 < 100ms (扫码后页面跳转流畅)
 - 断网时 PAD 会提示 "网络不可用", 恢复后自动重连
 
@@ -121,7 +121,7 @@ PAD 只需安装浏览器 (Chrome / Edge), 无需安装 App。系统通过 PWA (
 
 ```
 ┌─────────────────────────────┐
-│        HMS 制造执行系统       │
+│        MES 制造执行系统       │
 │                              │
 │    ┌──────────────────┐      │
 │    │  用户名           │      │
@@ -137,11 +137,11 @@ PAD 只需安装浏览器 (Chrome / Edge), 无需安装 App。系统通过 PWA (
 │    │     登 录         │      │
 │    └──────────────────┘      │
 │                              │
-│  版本 v1.0  © HMS Team       │
+│  版本 v1.0  © MES Team       │
 └─────────────────────────────┘
 ```
 
-1. 点击 PAD 桌面上的 HMS 图标
+1. 点击 PAD 桌面上的 MES 图标
 2. 输入用户名和密码 (由管理员分配)
 3. 输入图形验证码
 4. 点击 "登录"
@@ -207,8 +207,8 @@ PAD 首页菜单根据用户角色权限动态显示:
 1. 在首页点击 "扫码作业"
 2. PAD 摄像头开启, 将二维码对准取景框
 3. 识别成功后, 系统根据二维码类型自动跳转:
-   - 工单码 `HMS:WO:50` → 跳转工单详情
-   - 工序码 `HMS:OP:101` → 跳转报工页面
+   - 工单码 `MES:WO:50` → 跳转工单详情
+   - 工序码 `MES:OP:101` → 跳转报工页面
 
 ```
 ┌─────────────────────────────┐
@@ -375,7 +375,7 @@ PAD 首页菜单根据用户角色权限动态显示:
 针对高频报工场景, PAD 支持快捷流程:
 
 1. 首页 → "扫码作业"
-2. 扫描工序码 `HMS:OP:101` → 直接进入报工页面 (跳过工单详情)
+2. 扫描工序码 `MES:OP:101` → 直接进入报工页面 (跳过工单详情)
 3. 录入数量 → 提交 → 自动返回扫码页面 (准备下一次扫码)
 
 ---
@@ -391,7 +391,7 @@ PAD 首页菜单根据用户角色权限动态显示:
 ### 6.2 操作步骤
 
 1. 首页 → "物料管理" → "领料申请"
-2. 或直接扫物料码 `HMS:MAT:MAT-A001`
+2. 或直接扫物料码 `MES:MAT:MAT-A001`
 
 ```
 ┌─────────────────────────────┐
@@ -520,7 +520,7 @@ PAD 首页菜单根据用户角色权限动态显示:
 ### 8.1 查看设备状态
 
 1. 首页 → "设备状态"
-2. 或扫设备码 `HMS:DEV:10`
+2. 或扫设备码 `MES:DEV:10`
 
 ```
 ┌─────────────────────────────┐
@@ -601,7 +601,7 @@ PAD 首页菜单根据用户角色权限动态显示:
 ### 9.2 操作步骤
 
 1. 首页 → "物料管理" → "成品入库"
-2. 或扫产品序列码 `HMS:SN:SN20260815-001`
+2. 或扫产品序列码 `MES:SN:SN20260815-001`
 
 ```
 ┌─────────────────────────────┐
@@ -708,16 +708,16 @@ PAD 首页菜单根据用户角色权限动态显示:
 
 | 方案 | 优点 | 缺点 | 推荐 |
 |------|------|------|------|
-| **PWA (React)** | 复用 hms-web 技术栈和组件, 无需安装, 自动更新 | 摄像头扫码需 Web API | ✅ 推荐 |
+| **PWA (React)** | 复用 mes-web 技术栈和组件, 无需安装, 自动更新 | 摄像头扫码需 Web API | ✅ 推荐 |
 | 原生 App (Android) | 扫码性能好, 离线能力强 | 开发成本高, 需分发更新 | ❌ |
 | 混合 App (Ionic/Capacitor) | 兼顾 Web 开发和原生扫码 | 额外构建工具链 | 备选 |
 
 ### 12.2 PWA 实现方案
 
-PAD 端作为 hms-web 的子路径 `/pad/`, 复用认证和 HTTP 封装:
+PAD 端作为 mes-web 的子路径 `/pad/`, 复用认证和 HTTP 封装:
 
 ```
-hms-web/
+mes-web/
 ├── src/
 │   ├── pages/
 │   │   ├── ... (现有管理后台页面)
@@ -754,7 +754,7 @@ async function startScanning(videoRef: HTMLVideoElement) {
         const barcodes = await detector.detect(videoRef);
         if (barcodes.length > 0) {
             const code = barcodes[0].rawValue;
-            handleScanResult(code);  // 解析 HMS:WO:50 格式
+            handleScanResult(code);  // 解析 MES:WO:50 格式
         }
         requestAnimationFrame(scan);
     };
@@ -775,7 +775,7 @@ document.addEventListener('keydown', (e) => {
     scanBuffer += e.key;
     clearTimeout(scanTimer);
     scanTimer = setTimeout(() => {
-        if (scanBuffer.startsWith('HMS:')) {
+        if (scanBuffer.startsWith('MES:')) {
             handleScanResult(scanBuffer);
         }
         scanBuffer = '';
@@ -787,8 +787,8 @@ document.addEventListener('keydown', (e) => {
 
 ```typescript
 function handleScanResult(code: string) {
-    // 格式: HMS:{TYPE}:{ID}
-    const match = code.match(/^HMS:(\w+):(.+)$/);
+    // 格式: MES:{TYPE}:{ID}
+    const match = code.match(/^MES:(\w+):(.+)$/);
     if (!match) {
         message.error('无效的二维码格式');
         return;
@@ -837,9 +837,9 @@ PAD 端 100% 复用现有后端 API, 无需新增后端接口:
 在 `deploy/nginx/nginx.conf` 中添加 PAD 路由:
 
 ```nginx
-# ---- PAD 入口 (复用 hms-web 静态文件, 路由到 /pad/) ----
+# ---- PAD 入口 (复用 mes-web 静态文件, 路由到 /pad/) ----
 location /pad/ {
-    root /srv/hms-web;
+    root /srv/mes-web;
     try_files $uri /pad/index.html;
 }
 ```
@@ -848,7 +848,7 @@ location /pad/ {
 
 ```typescript
 // 可选: 缓存 PAD 核心页面, 断网时仍可查看已加载工单
-const CACHE_NAME = 'hms-pad-v1';
+const CACHE_NAME = 'mes-pad-v1';
 const CACHE_URLS = [
     '/pad/',
     '/pad/index.html',
@@ -874,4 +874,4 @@ self.addEventListener('install', (event) => {
 
 ---
 
-> **文档版本**: 1.0 | **最后更新**: 2026-08-15 | **维护者**: HMS 团队
+> **文档版本**: 1.0 | **最后更新**: 2026-08-15 | **维护者**: MES 团队

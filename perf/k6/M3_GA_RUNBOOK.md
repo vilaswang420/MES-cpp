@@ -32,19 +32,19 @@ curl -s http://127.0.0.1:8088/api/v1/auth/login -H 'Content-Type: application/js
   -d '{"username":"admin","password":"password"}'
 
 # 1) 启动泄漏监控 (独立终端, 全程跑; pidof 若为容器内进程用 docker exec + /proc/1)
-python3 perf/k6/ga_leak_monitor.py --pid $(pidof hms-backend) --port 8088 \
+python3 perf/k6/ga_leak_monitor.py --pid $(pidof mes-backend) --port 8088 \
   --duration 7500 --out ga_leak.csv          # 比压测多留 5min 观察收尾
 
 # 2) 入库背景负载 (~4k msg/s 可持续, M2 校准值; 模拟 IoT 采集)
 python3 scripts/iot_simulator.py --burst &   # 参数见脚本头部, 保持与 M2 相同口径
 
 # 3) smoke 冒烟 (10min, 先验证脚本与环境, 不出正式结论)
-k6 run -e HMS_API_BASE=http://127.0.0.1:8088 \
-       -e HMS_GA_SECONDS=600 -e HMS_GA_REST_VUS=50 -e HMS_GA_WS_VUS=100 \
+k6 run -e MES_API_BASE=http://127.0.0.1:8088 \
+       -e MES_GA_SECONDS=600 -e MES_GA_REST_VUS=50 -e MES_GA_WS_VUS=100 \
        perf/k6/m3_ga.js
 
 # 4) 正式 2h 全量 (默认参数即 GA 口径: 400 REST VU + 1000 WS + 2h)
-k6 run -e HMS_API_BASE=http://127.0.0.1:8088 perf/k6/m3_ga.js \
+k6 run -e MES_API_BASE=http://127.0.0.1:8088 perf/k6/m3_ga.js \
   --summary-export ga_result.json | tee ga_console.log
 
 # 5) 收尾: 等泄漏监控结束输出判定; 汇总三份产物
@@ -53,11 +53,11 @@ k6 run -e HMS_API_BASE=http://127.0.0.1:8088 perf/k6/m3_ga.js \
 
 ## 4. 脚本行为说明 (执行前必读)
 
-- **JWT 2h 过期**: REST 场景每 VU 本地 token, 默认 90min 自动轮换 (`HMS_GA_TOKEN_TTL_S`); 收到 401 时立即作废重登 (该次请求不计错误)。WS 仅握手时验 token, 连接建立后不受过期影响。
+- **JWT 2h 过期**: REST 场景每 VU 本地 token, 默认 90min 自动轮换 (`MES_GA_TOKEN_TTL_S`); 收到 401 时立即作废重登 (该次请求不计错误)。WS 仅握手时验 token, 连接建立后不受过期影响。
 - **WS 保活**: 每 30s 发 protocol 层 ping (Drogon 自动回 pong), 不依赖应用层消息。
 - **掉线判定**: 连接存活 < 总时长-60s 即计掉线 (k6 `ws.connect` 在连接关闭后才返回)。
 - **节流**: REST 每 VU sleep 1s, 稳态 ~400 rps; 2h 报工约 57 万条 (setup 建单 plan_qty=10,000,000 足够)。
-- **环境变量**: `HMS_GA_SECONDS / HMS_GA_REST_VUS / HMS_GA_WS_VUS / HMS_GA_RAMP_S / HMS_GA_TOKEN_TTL_S / HMS_WS_BASE`。
+- **环境变量**: `MES_GA_SECONDS / MES_GA_REST_VUS / MES_GA_WS_VUS / MES_GA_RAMP_S / MES_GA_TOKEN_TTL_S / MES_WS_BASE`。
 
 ## 5. 泄漏判定口径
 

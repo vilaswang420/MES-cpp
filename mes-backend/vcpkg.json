@@ -1,0 +1,20 @@
+{
+    "name": "mes-backend",
+    "version": "0.1.0",
+    "description": "MES Manufacturing Execution System backend (Drogon)",
+    "dependencies": [
+        {
+            "name": "drogon",
+            "features": [
+                "postgres",
+                "redis"
+            ]
+        },
+        "hiredis",
+        "jwt-cpp",
+        "simpleamqpclient",
+        "nlohmann-json",
+        "gtest"
+    ],
+    "builtin-baseline": "ea1a7396b05637a53bf23c078647ecc0edee4b80"
+}

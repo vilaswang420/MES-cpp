@@ -1,4 +1,4 @@
-# HMS P4 缺失功能实施方案（评审稿 v1.0）
+# MES P4 缺失功能实施方案（评审稿 v1.0）
 
 > 版本: 1.0 | 日期: 2026-08-16 | 状态: **评审通过（APPROVED），开始实施**
 >
@@ -18,7 +18,7 @@
 
 | Sprint | 内容 | 依赖 | 预估 |
 |--------|------|------|------|
-| S1（并行启动） | 5.3 大屏 ECharts + 5.5 前端 3 模块 + 5.1 IoT Modbus 采集 + hms-iot CI | 无互相依赖 | 2-3 周 |
+| S1（并行启动） | 5.3 大屏 ECharts + 5.5 前端 3 模块 + 5.1 IoT Modbus 采集 + mes-iot CI | 无互相依赖 | 2-3 周 |
 | S2（依赖 S1） | 5.2 停采两端 + 5.7 IoT 管理补齐 + 5.4 真 OEE 消费者 | 5.1 cmd 消费者 | 1-2 周 |
 | S3（最终验证） | 5.6 GA 2h 压测 | S1+S2 全部完成 | 1-2 天 |
 
@@ -27,7 +27,7 @@ S1 并行:
   5.3 大屏 ECharts ──────────────────────────────┐
   5.5 前端 3 模块 (iot/quality/integration) ────┤
   5.1 IoT Modbus TCP 采集 ──┐                    │
-  hms-iot CI/Dockerfile ────┤                    │
+  mes-iot CI/Dockerfile ────┤                    │
                             ↓                    ↓
 S2 串行依赖:                 │                    │
   5.2 停采链路两端落地 ←─────┘                    │
@@ -44,20 +44,20 @@ S3:  5.6 GA 标准环境 2h 压测
 
 ### 5.3 大屏 ECharts 可视化
 
-> echarts ^5.5.1 已在 hms-dashboard/package.json 中声明但零 import，当前 App.vue 用 `<pre>` 渲染 JSON。
+> echarts ^5.5.1 已在 mes-dashboard/package.json 中声明但零 import，当前 App.vue 用 `<pre>` 渲染 JSON。
 
 #### 文件变更清单
 
 | 操作 | 文件 | 说明 |
 |------|------|------|
-| 新建 | `hms-dashboard/src/composables/useChart.ts` | ECharts 封装: init/resize/dispose + tree-shaking 按需引入 |
-| 新建 | `hms-dashboard/src/components/DashboardKpi.vue` | 顶部 KPI 行: 在制工单/完工率/yield_rate/告警数 |
-| 新建 | `hms-dashboard/src/components/LineStatus.vue` | 产线状态网格: 各产线实时工单+进度条 |
-| 新建 | `hms-dashboard/src/components/QualityTrend.vue` | 质量趋势折线图: 缺陷率/合格率时间序列 |
-| 新建 | `hms-dashboard/src/components/AlertTimeline.vue` | 告警时间线: 按级别着色的垂直时间轴 |
-| 新建 | `hms-dashboard/src/components/OeeGauge.vue` | OEE 仪表盘占位(显示 yield_rate，5.4 落地后替换真 OEE) |
-| 修改 | `hms-dashboard/src/App.vue` | 布局重构: 替换 `<pre>` 为组件网格 + 深色主题 |
-| 修改 | `hms-dashboard/src/composables/useChannel.ts` | 移除弱默认凭据(P3-4.4)，改环境变量注入 |
+| 新建 | `mes-dashboard/src/composables/useChart.ts` | ECharts 封装: init/resize/dispose + tree-shaking 按需引入 |
+| 新建 | `mes-dashboard/src/components/DashboardKpi.vue` | 顶部 KPI 行: 在制工单/完工率/yield_rate/告警数 |
+| 新建 | `mes-dashboard/src/components/LineStatus.vue` | 产线状态网格: 各产线实时工单+进度条 |
+| 新建 | `mes-dashboard/src/components/QualityTrend.vue` | 质量趋势折线图: 缺陷率/合格率时间序列 |
+| 新建 | `mes-dashboard/src/components/AlertTimeline.vue` | 告警时间线: 按级别着色的垂直时间轴 |
+| 新建 | `mes-dashboard/src/components/OeeGauge.vue` | OEE 仪表盘占位(显示 yield_rate，5.4 落地后替换真 OEE) |
+| 修改 | `mes-dashboard/src/App.vue` | 布局重构: 替换 `<pre>` 为组件网格 + 深色主题 |
+| 修改 | `mes-dashboard/src/composables/useChannel.ts` | 移除弱默认凭据(P3-4.4)，改环境变量注入 |
 | 修改 | `contracts/ws-push.schema.json` | 确认 production.realtime payload 字段完整(yield_rate 已在 P1-2.3 改名) |
 
 #### useChart.ts 设计
@@ -127,24 +127,24 @@ export function useChart(el: Ref<HTMLElement | null>, option: Ref<EChartsOption>
 
 | 操作 | 文件 | 说明 |
 |------|------|------|
-| 新建 | `hms-web/src/pages/iot/Devices.tsx` | 设备列表 + 详情抽屉(传感器 Tab) + CRUD |
-| 新建 | `hms-web/src/pages/iot/Sensors.tsx` | 传感器管理（嵌入设备详情 Tab，不独立路由） |
-| 新建 | `hms-web/src/pages/iot/Alerts.tsx` | 告警管理: 列表 + 确认/消除/忽略 |
-| 新建 | `hms-web/src/pages/iot/Tasks.tsx` | 采集任务 CRUD |
-| 新建 | `hms-web/src/pages/quality/Standards.tsx` | 检验标准列表 |
-| 新建 | `hms-web/src/pages/quality/Inspections.tsx` | 检验记录 + 缺陷明细 Drawer |
-| 新建 | `hms-web/src/pages/quality/Defects.tsx` | 缺陷管理 + 处置弹窗(返工/返修/报废/让步) |
-| 新建 | `hms-web/src/pages/quality/Statistics.tsx` | 质量统计（需图表库，见下） |
-| 新建 | `hms-web/src/pages/integration/ErpSync.tsx` | ERP 订单同步(手动触发 + 日志) |
-| 新建 | `hms-web/src/pages/integration/WmsOps.tsx` | WMS 领料/入库操作 |
-| 新建 | `hms-web/src/pages/integration/Logs.tsx` | 同步日志 + 重试 |
-| 修改 | `hms-web/src/App.tsx` | 新增 9 条路由 |
-| 修改 | `hms-web/src/layouts/MainLayout.tsx` | 菜单树新增 3 个一级菜单 + 子项 |
-| 修改 | `hms-web/package.json` | 新增图表库依赖（见下） |
+| 新建 | `mes-web/src/pages/iot/Devices.tsx` | 设备列表 + 详情抽屉(传感器 Tab) + CRUD |
+| 新建 | `mes-web/src/pages/iot/Sensors.tsx` | 传感器管理（嵌入设备详情 Tab，不独立路由） |
+| 新建 | `mes-web/src/pages/iot/Alerts.tsx` | 告警管理: 列表 + 确认/消除/忽略 |
+| 新建 | `mes-web/src/pages/iot/Tasks.tsx` | 采集任务 CRUD |
+| 新建 | `mes-web/src/pages/quality/Standards.tsx` | 检验标准列表 |
+| 新建 | `mes-web/src/pages/quality/Inspections.tsx` | 检验记录 + 缺陷明细 Drawer |
+| 新建 | `mes-web/src/pages/quality/Defects.tsx` | 缺陷管理 + 处置弹窗(返工/返修/报废/让步) |
+| 新建 | `mes-web/src/pages/quality/Statistics.tsx` | 质量统计（需图表库，见下） |
+| 新建 | `mes-web/src/pages/integration/ErpSync.tsx` | ERP 订单同步(手动触发 + 日志) |
+| 新建 | `mes-web/src/pages/integration/WmsOps.tsx` | WMS 领料/入库操作 |
+| 新建 | `mes-web/src/pages/integration/Logs.tsx` | 同步日志 + 重试 |
+| 修改 | `mes-web/src/App.tsx` | 新增 9 条路由 |
+| 修改 | `mes-web/src/layouts/MainLayout.tsx` | 菜单树新增 3 个一级菜单 + 子项 |
+| 修改 | `mes-web/package.json` | 新增图表库依赖（见下） |
 
 #### 图表库选型（质量统计页）
 
-hms-web 当前无图表库。选项：
+mes-web 当前无图表库。选项：
 
 | 方案 | 体积 | 优势 | 劣势 |
 |------|------|------|------|
@@ -191,26 +191,26 @@ hms-web 当前无图表库。选项：
 
 ### 5.1 IoT Modbus TCP 真实采集（最大缺口）
 
-> hms-iot/src/main.cc L193-196 显式 TODO。用户已裁决：轮询最小实现（不引 libmodbus，自实现 MBAP + FC=0x03，约 300 行）。
+> mes-iot/src/main.cc L193-196 显式 TODO。用户已裁决：轮询最小实现（不引 libmodbus，自实现 MBAP + FC=0x03，约 300 行）。
 
 #### 文件变更清单
 
 | 操作 | 文件 | 说明 |
 |------|------|------|
-| 新建 | `hms-iot/src/modbus/ModbusClient.hh` | Modbus TCP 协议层: MBAP 帧编解码 + FC=0x03 读保持寄存器 |
-| 新建 | `hms-iot/src/modbus/ModbusClient.cc` | socket 连接 + 请求/响应配对(transaction id) + 断连重连 |
-| 新建 | `hms-iot/src/collector/DevicePoller.hh` | 单设备轮询器: 按 poll_interval_ms 调度 + 传感器地址排序合并帧 |
-| 新建 | `hms-iot/src/collector/DevicePoller.cc` | 轮询循环 + scale 校验 + publisher.enqueue() |
-| 新建 | `hms-iot/src/collector/ConfigLoader.hh` | 启动时经后端 REST /api/v1/iot/devices 拉取配置（禁止文件与 DB 双写） |
-| 新建 | `hms-iot/src/collector/ConfigLoader.cc` | HTTP 拉取 + device_id/sensor_id 校验 + 拒绝启动 |
-| 新建 | `hms-iot/src/cmd/CmdConsumer.hh` | cmd.stop.# / cmd.dev.# 消费者: 停采/恢复/设备指令 |
-| 新建 | `hms-iot/src/cmd/CmdConsumer.cc` | AMQP 消费 + 解析 + 暂停/恢复 DevicePoller |
-| 修改 | `hms-iot/src/main.cc` | 集成: ConfigLoader → DevicePoller 线程池 → CmdConsumer → healthz |
-| 修改 | `hms-iot/config/iot.json` | 补 unit_id 字段 + 移除 devices（改 DB 拉取）+ 补 backend_url |
-| 修改 | `hms-iot/CMakeLists.txt` | GLOB 自动纳入新 .cc（已用 file(GLOB_RECURSE)） |
-| 修改 | `hms-iot/vcpkg.json` | 无新依赖（自实现 Modbus，不引 libmodbus） |
+| 新建 | `mes-iot/src/modbus/ModbusClient.hh` | Modbus TCP 协议层: MBAP 帧编解码 + FC=0x03 读保持寄存器 |
+| 新建 | `mes-iot/src/modbus/ModbusClient.cc` | socket 连接 + 请求/响应配对(transaction id) + 断连重连 |
+| 新建 | `mes-iot/src/collector/DevicePoller.hh` | 单设备轮询器: 按 poll_interval_ms 调度 + 传感器地址排序合并帧 |
+| 新建 | `mes-iot/src/collector/DevicePoller.cc` | 轮询循环 + scale 校验 + publisher.enqueue() |
+| 新建 | `mes-iot/src/collector/ConfigLoader.hh` | 启动时经后端 REST /api/v1/iot/devices 拉取配置（禁止文件与 DB 双写） |
+| 新建 | `mes-iot/src/collector/ConfigLoader.cc` | HTTP 拉取 + device_id/sensor_id 校验 + 拒绝启动 |
+| 新建 | `mes-iot/src/cmd/CmdConsumer.hh` | cmd.stop.# / cmd.dev.# 消费者: 停采/恢复/设备指令 |
+| 新建 | `mes-iot/src/cmd/CmdConsumer.cc` | AMQP 消费 + 解析 + 暂停/恢复 DevicePoller |
+| 修改 | `mes-iot/src/main.cc` | 集成: ConfigLoader → DevicePoller 线程池 → CmdConsumer → healthz |
+| 修改 | `mes-iot/config/iot.json` | 补 unit_id 字段 + 移除 devices（改 DB 拉取）+ 补 backend_url |
+| 修改 | `mes-iot/CMakeLists.txt` | GLOB 自动纳入新 .cc（已用 file(GLOB_RECURSE)） |
+| 修改 | `mes-iot/vcpkg.json` | 无新依赖（自实现 Modbus，不引 libmodbus） |
 | 新建 | `deploy/docker/Dockerfile.iot` | IoT 容器镜像构建 |
-| 修改 | `deploy/docker-compose.prod.yml` | 新增 hms-iot 容器 + healthcheck 8091 |
+| 修改 | `deploy/docker-compose.prod.yml` | 新增 mes-iot 容器 + healthcheck 8091 |
 | 新建 | `scripts/modbus_slave_sim.py` | pymodbus 模拟从站（E2E 验证） |
 
 #### ModbusClient 设计
@@ -269,7 +269,7 @@ PDU (FC=0x03 读保持寄存器):
 5. main.cc 集成（ConfigLoader → Poller 线程池 → CmdConsumer → healthz）
 6. Dockerfile.iot + compose 集成
 7. modbus_slave_sim.py E2E 脚本
-8. CI hms-iot 编译 job（提前到 P4 初期，见 6.5）
+8. CI mes-iot 编译 job（提前到 P4 初期，见 6.5）
 
 #### 验收标准
 
@@ -278,18 +278,18 @@ PDU (FC=0x03 读保持寄存器):
 - [ ] 断连自动重连（指数退避，上限 30s）
 - [ ] 容器健康检查通过（8091 healthz）
 - [ ] 100 设备轮询 P95 < 500ms
-- [ ] CI 有 hms-iot 编译 job 且全绿
+- [ ] CI 有 mes-iot 编译 job 且全绿
 - [ ] iot.json 无 devices 数组（改 DB 拉取），有 unit_id + backend_url
 
 ---
 
-### hms-iot CI/Dockerfile（6.5 提前部分）
+### mes-iot CI/Dockerfile（6.5 提前部分）
 
 | 操作 | 文件 | 说明 |
 |------|------|------|
 | 新建 | `deploy/docker/Dockerfile.iot` | 多阶段构建: vcpkg → 编译 → 运行镜像 |
 | 修改 | `.github/workflows/ci.yml` | 新增 iot job: cmake configure + build |
-| 修改 | `deploy/docker-compose.prod.yml` | hms-iot 服务 + healthcheck + 依赖 hms-backend |
+| 修改 | `deploy/docker-compose.prod.yml` | mes-iot 服务 + healthcheck + 依赖 mes-backend |
 
 ---
 
@@ -329,11 +329,11 @@ PDU (FC=0x03 读保持寄存器):
 
 | 操作 | 文件 | 说明 |
 |------|------|------|
-| 修改 | `hms-backend/src/services/IotService.cc` | 告警 resolve/dismiss 方法 + 传感器 update/remove + listAlerts 补 acknowledged_by |
-| 修改 | `hms-backend/src/controllers/IotController.cc` | 新增路由: PUT alerts/{id}/resolve, PUT alerts/{id}/dismiss, PUT sensors/{id}, DELETE sensors/{id} |
-| 修改 | `hms-backend/src/common/perm_routes.cc` | 新增 4 条权限映射 |
-| 新建 | `hms-backend/migrations/016_iot_mgmt_perms.up.sql` | 权限种子: iot:alert:resolve, iot:alert:dismiss, iot:sensor:put, iot:sensor:del |
-| 新建 | `hms-backend/migrations/016_iot_mgmt_perms.down.sql` | 回滚 |
+| 修改 | `mes-backend/src/services/IotService.cc` | 告警 resolve/dismiss 方法 + 传感器 update/remove + listAlerts 补 acknowledged_by |
+| 修改 | `mes-backend/src/controllers/IotController.cc` | 新增路由: PUT alerts/{id}/resolve, PUT alerts/{id}/dismiss, PUT sensors/{id}, DELETE sensors/{id} |
+| 修改 | `mes-backend/src/common/perm_routes.cc` | 新增 4 条权限映射 |
+| 新建 | `mes-backend/migrations/016_iot_mgmt_perms.up.sql` | 权限种子: iot:alert:resolve, iot:alert:dismiss, iot:sensor:put, iot:sensor:del |
+| 新建 | `mes-backend/migrations/016_iot_mgmt_perms.down.sql` | 回滚 |
 
 #### 实施步骤
 
@@ -360,11 +360,11 @@ PDU (FC=0x03 读保持寄存器):
 
 | 操作 | 文件 | 说明 |
 |------|------|------|
-| 新建 | `hms-backend/migrations/017_oee_stats.up.sql` | 建表 prod_oee_stats(line_id, stat_date, shift, availability, performance, quality, oee, updated_at) + 唯一索引 |
-| 新建 | `hms-backend/migrations/017_oee_stats.down.sql` | 回滚 |
-| 新建 | `hms-backend/src/services/OeeService.hh` | OEE 三因子计算 + 聚合写入 |
-| 新建 | `hms-backend/src/services/OeeService.cc` | MQ 消费者: 消费 iot_raw_data(A 因子) + 报工事件(P 因子) + qc_inspections(Q 因子) |
-| 修改 | `hms-backend/src/services/WsBroadcastManager.cc` | queryAndPushRealtime 改读 prod_oee_stats 推送（oee 拆 availability/performance/quality） |
+| 新建 | `mes-backend/migrations/017_oee_stats.up.sql` | 建表 prod_oee_stats(line_id, stat_date, shift, availability, performance, quality, oee, updated_at) + 唯一索引 |
+| 新建 | `mes-backend/migrations/017_oee_stats.down.sql` | 回滚 |
+| 新建 | `mes-backend/src/services/OeeService.hh` | OEE 三因子计算 + 聚合写入 |
+| 新建 | `mes-backend/src/services/OeeService.cc` | MQ 消费者: 消费 iot_raw_data(A 因子) + 报工事件(P 因子) + qc_inspections(Q 因子) |
+| 修改 | `mes-backend/src/services/WsBroadcastManager.cc` | queryAndPushRealtime 改读 prod_oee_stats 推送（oee 拆 availability/performance/quality） |
 | 修改 | `deploy/mq/topology.json` | 新增 oee.calc.queue (binding: data.# fan-out 复制, 不影响现有入库) |
 | 修改 | `contracts/ws-push.schema.json` | production.realtime payload 新增 availability/performance/quality/oee 字段 |
 
@@ -453,7 +453,7 @@ iot.exchange
                       └── 5.7 IoT 管理补齐 (无强依赖, 可并行)
 
 5.5 前端 3 模块 (完全独立, 可最早启动)
-hms-iot CI/Dockerfile (5.1 的前置)
+mes-iot CI/Dockerfile (5.1 的前置)
 5.6 GA 压测 (最后, 依赖全部完成)
 ```
 
@@ -474,7 +474,7 @@ hms-iot CI/Dockerfile (5.1 的前置)
 请用户确认以下决策点：
 
 1. **实施顺序**: S1 并行 → S2 串行 → S3 验证，是否同意？
-2. **图表库选型**: hms-web 质量统计页用 echarts 按需引入（与大屏统一），是否同意？
+2. **图表库选型**: mes-web 质量统计页用 echarts 按需引入（与大屏统一），是否同意？
 3. **OEE A 因子传感器约定**: 每设备约定 run_status 布尔传感器（寄存器 40002），若无则 A 默认 100%，是否同意？
 4. **iot.json 配置事实源**: devices 从后端 REST 拉取（禁止文件与 DB 双写），iot.json 仅留基础设施配置，是否同意？
 5. **5.7 IoT 管理范围**: 告警 resolve/dismiss + 传感器 PUT/DELETE + listAlerts 补字段，设备类型 CRUD 是否需要？（当前 schema 无设备类型表）

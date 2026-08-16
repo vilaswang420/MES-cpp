@@ -12,7 +12,7 @@ import { check } from "k6";
 import { Rate } from "k6/metrics";
 import exec from "k6/execution";
 
-const BASE = __ENV.HMS_API_BASE || "http://127.0.0.1:8088";
+const BASE = __ENV.MES_API_BASE || "http://127.0.0.1:8088";
 const HEADERS = { "Content-Type": "application/json" };
 
 const apiError = new Rate("api_error");

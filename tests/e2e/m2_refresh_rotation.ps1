@@ -1,9 +1,9 @@
 ﻿# tests/e2e/m2_refresh_rotation.ps1 — P3-4.3 JWT refresh token 轮换 E2E
 # 覆盖: ① refresh 后旧 refresh 重放被拒 (轮换核心); ② 新 refresh 可继续轮换;
 #       ③ logout 后当前会话 refresh 不可用 (注销级联)。
-# 前置: just dev-up 已启动中间件与迁移, hms-backend 运行于 :8088。
+# 前置: just dev-up 已启动中间件与迁移, mes-backend 运行于 :8088。
 $ErrorActionPreference = "Stop"
-$base = if ($env:HMS_API_BASE) { $env:HMS_API_BASE } else { "http://127.0.0.1:8088" }
+$base = if ($env:MES_API_BASE) { $env:MES_API_BASE } else { "http://127.0.0.1:8088" }
 $pass = 0; $fail = 0
 
 function Check([string]$name, [bool]$cond) {

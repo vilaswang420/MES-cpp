@@ -1,0 +1,60 @@
+﻿{
+    "app": {
+        "threads_num": 8,
+        "enable_server_header": false,
+        "document_root": "./static",
+        "upload_path": "./uploads",
+        "client_max_body_size": "20M",
+        "idle_connection_timeout": 60,
+        "enable_request_stream": false
+    },
+    "listeners": [
+        {
+            "address": "0.0.0.0",
+            "port": 8090,
+            "https": false
+        }
+    ],
+    "db_clients": [
+        {
+            "name": "default",
+            "rdbms": "postgresql",
+            "host": "127.0.0.1",
+            "port": 5432,
+            "dbname": "mes",
+            "user": "mes",
+            "passwd": "mes_dev_pwd",
+            "connection_number": 64,
+            "is_fast": false,
+            "character_set": "UTF8"
+        }
+    ],
+    "redis_clients": [
+        {
+            "name": "default",
+            "host": "127.0.0.1",
+            "port": 6379,
+            "passwd": "",
+            "db": 0,
+            "connection_number": 32
+        }
+    ],
+    "log": {
+        "use_spdlog": false,
+        "log_path": "./logs",
+        "logfile_base_name": "mes-backend-c",
+        "log_size_limit": 104857600,
+        "log_level": "INFO"
+    },
+    "run_as_daemon": false,
+    "relaunch_on_error": false,
+    "use_sendfile": true,
+    "use_gzip": false,
+    "static_files_cache_time": 60,
+    "custom_config": {
+        "jwt_secret": "mes-dev-secret-change-me-in-prod",
+        "jwt_access_ttl_sec": 7200,
+        "jwt_refresh_ttl_sec": 604800
+    }
+}
+

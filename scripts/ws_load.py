@@ -51,7 +51,7 @@ def redis_publish(payload: dict):
     b64 = base64.b64encode(raw.encode()).decode()
     sh = f"echo {b64} | base64 -d | xargs -0 redis-cli PUBLISH ws:broadcast:{CHANNEL}"
     # xargs -0 保留整串; redis-cli PUBLISH channel payload
-    subprocess.run(["docker", "exec", "hms-redis", "sh", "-c", sh],
+    subprocess.run(["docker", "exec", "mes-redis", "sh", "-c", sh],
                    check=True, capture_output=True)
 
 

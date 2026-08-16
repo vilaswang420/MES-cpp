@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ERP/WMS 本地桩 (WireMock 风格, 计划任务 23 "桩先行")。
 
-用途: HMS IntegrationService 外呼的对端替身, dev/冒烟/熔断与 Saga 补偿验证。
+用途: MES IntegrationService 外呼的对端替身, dev/冒烟/熔断与 Saga 补偿验证。
 监听 127.0.0.1:9095 (与迁移 009 的 integ_api_configs 种子一致)。
 
 故障注入控制端 (冒烟脚本用):

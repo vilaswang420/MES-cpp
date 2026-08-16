@@ -51,7 +51,7 @@ function InvokeApi([string]$method, [string]$url, $bodyObj, [string]$token) {
 }
 
 function Psql([string]$sql) {
-    return ((docker exec hms-postgres psql -U hms -d hms -t -A -c $sql) | Out-String).Trim()
+    return ((docker exec mes-postgres psql -U mes -d mes -t -A -c $sql) | Out-String).Trim()
 }
 
 function StubControl($bodyObj) {

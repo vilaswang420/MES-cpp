@@ -4,30 +4,30 @@ services:
   postgres:
     build:
       context: ../postgres
-    container_name: hms-postgres
+    container_name: mes-postgres
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_DB: hms
-      POSTGRES_USER: hms
-      POSTGRES_PASSWORD: hms_dev_pwd
+      POSTGRES_DB: mes
+      POSTGRES_USER: mes
+      POSTGRES_PASSWORD: mes_dev_pwd
     volumes:
-      - hms_pg_data:/var/lib/postgresql/data
+      - mes_pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U hms -d hms"]
+      test: ["CMD-SHELL", "pg_isready -U mes -d mes"]
       interval: 5s
       timeout: 3s
       retries: 12
 
   redis:
     image: redis:7-alpine
-    container_name: hms-redis
+    container_name: mes-redis
     # 开发环境单实例, 显式禁用 cluster 模式 (M3 才切 Redis Cluster)
     command: ["redis-server", "--appendonly", "yes", "--cluster-enabled", "no"]
     ports:
       - "6379:6379"
     volumes:
-      - hms_redis_data:/data
+      - mes_redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -36,15 +36,15 @@ services:
 
   rabbitmq:
     image: rabbitmq:3.13-management
-    container_name: hms-rabbitmq
+    container_name: mes-rabbitmq
     ports:
       - "5672:5672"
       - "15672:15672"
     environment:
-      RABBITMQ_DEFAULT_USER: hms
-      RABBITMQ_DEFAULT_PASS: hms_dev_pwd
+      RABBITMQ_DEFAULT_USER: mes
+      RABBITMQ_DEFAULT_PASS: mes_dev_pwd
     volumes:
-      - hms_mq_data:/var/lib/rabbitmq
+      - mes_mq_data:/var/lib/rabbitmq
       # 首次启动自动声明拓扑 (exchange/queue/DLX/retry, 见 deploy/mq/topology.json)
       - ../mq/topology.json:/etc/rabbitmq/definitions.json:ro
       - ./rabbitmq-runtime.conf:/etc/rabbitmq/conf.d/99-definitions.conf:ro
@@ -55,6 +55,6 @@ services:
       retries: 12
 
 volumes:
-  hms_pg_data:
-  hms_redis_data:
-  hms_mq_data:
+  mes_pg_data:
+  mes_redis_data:
+  mes_mq_data:

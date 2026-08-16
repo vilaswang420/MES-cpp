@@ -18,8 +18,8 @@ import urllib.request
 
 HOST = sys.argv[1] if len(sys.argv) > 1 else "127.0.0.1"
 PORT = sys.argv[2] if len(sys.argv) > 2 else "15672"
-USER = sys.argv[3] if len(sys.argv) > 3 else "hms"
-PWD = sys.argv[4] if len(sys.argv) > 4 else "hms_dev_pwd"
+USER = sys.argv[3] if len(sys.argv) > 3 else "mes"
+PWD = sys.argv[4] if len(sys.argv) > 4 else "mes_dev_pwd"
 VHOST = "%2F"
 
 TOPO = json.load(open("deploy/mq/topology.json", encoding="utf-8"))

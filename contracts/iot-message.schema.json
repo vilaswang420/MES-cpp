@@ -1,6 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "$id": "https://hms.local/contracts/iot-message.schema.json",
+    "$id": "https://mes.local/contracts/iot-message.schema.json",
     "title": "IoT 数据上报消息 (设计文档 2.4 节)",
     "description": "IoT 采集系统发布到 iot.exchange 的数据上报消息。content-type 固定 application/json。演进规则: 只增不删字段; 消费者必须忽略未知字段; 破坏性变更升级 version 并双版本并行过渡。",
     "type": "object",

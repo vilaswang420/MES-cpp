@@ -3,10 +3,10 @@
 #       ② 创建合格检验 (result=1) 后 -> 报工放行
 #       ③ 灰度开关 quality_gate_enabled=false (回退) -> 无检验记录也可报工
 #       ④ 开关恢复 true -> 门禁重新生效
-# 前置: just dev-up 已启动中间件与迁移 (含 013), hms-backend 运行于 :8088。
+# 前置: just dev-up 已启动中间件与迁移 (含 013), mes-backend 运行于 :8088。
 $ErrorActionPreference = "Stop"
 [System.Net.ServicePointManager]::Expect100Continue = $false
-$base = if ($env:HMS_API_BASE) { $env:HMS_API_BASE } else { "http://127.0.0.1:8088" }
+$base = if ($env:MES_API_BASE) { $env:MES_API_BASE } else { "http://127.0.0.1:8088" }
 $suffix = Get-Date -Format "HHmmss"
 $pass = 0; $fail = 0
 

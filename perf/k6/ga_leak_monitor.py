@@ -2,7 +2,7 @@
 """5.6 GA 2h 压测 — 后端进程内存/连接泄漏趋势采集 (配合 perf/k6/m3_ga.js).
 
 在压测目标服务器上运行 (Linux, 读 /proc, 无第三方依赖):
-  python3 perf/k6/ga_leak_monitor.py --pid $(pidof hms-backend) --port 8088 \
+  python3 perf/k6/ga_leak_monitor.py --pid $(pidof mes-backend) --port 8088 \
       --duration 7200 --out ga_leak.csv
 
 采样 (默认 30s 一次) 并写 CSV:
@@ -99,8 +99,8 @@ def verdict(name, vals, slope_h, leak_slope, growth_ratio, min_growth):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--pid", default="", help="后端进程 PID (缺省按 comm=hms-backend 查找)")
-    ap.add_argument("--name", default="hms-backend")
+    ap.add_argument("--pid", default="", help="后端进程 PID (缺省按 comm=mes-backend 查找)")
+    ap.add_argument("--name", default="mes-backend")
     ap.add_argument("--port", type=int, default=8088, help="后端监听端口 (TCP established 统计)")
     ap.add_argument("--interval", type=float, default=30.0)
     ap.add_argument("--duration", type=float, default=7200.0)

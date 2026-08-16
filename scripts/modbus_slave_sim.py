@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Modbus 从站模拟器 (P4-5.1 E2E 验证)
 
-使用 pymodbus 模拟 Modbus TCP 从站, 提供保持寄存器数据供 hms-iot 采集。
+使用 pymodbus 模拟 Modbus TCP 从站, 提供保持寄存器数据供 mes-iot 采集。
 寄存器映射 (与 iot_devices + iot_sensors DB 种子一致):
   40001 (offset 0): 温度传感器 (int16, scale=0.1, 每 2s 变化 20.0~30.0℃)
   40003 (offset 2): 转速传感器 (uint16, scale=1.0, 每 2s 变化 1000~1200 rpm)
@@ -12,7 +12,7 @@
 
 验证:
   1. 启动模拟器
-  2. 启动 hms-iot (config 从 DB 拉取, 设备 IP 指向本机)
+  2. 启动 mes-iot (config 从 DB 拉取, 设备 IP 指向本机)
   3. 检查 iot_raw_data 表有数据写入 (经 MQ → DataIngestHandler)
 """
 import argparse
@@ -69,7 +69,7 @@ def main():
 
     # 设备信息
     identity = ModbusDeviceIdentification()
-    identity.VendorName = "HMS Simulator"
+    identity.VendorName = "MES Simulator"
     identity.ProductName = "Modbus Slave Sim"
     identity.ProductVersion = "1.0"
 

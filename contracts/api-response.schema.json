@@ -1,6 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "$id": "https://hms.local/contracts/api-response.schema.json",
+    "$id": "https://mes.local/contracts/api-response.schema.json",
     "title": "REST 统一响应 (设计文档 4.1 节)",
     "description": "所有 REST 接口响应信封; 错误 JSON 只能由全局错误拦截器产出。",
     "type": "object",

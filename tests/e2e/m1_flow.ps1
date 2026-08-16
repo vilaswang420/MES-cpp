@@ -2,9 +2,9 @@
 #   登录 -> 建产品/产线/工艺 -> 建单 -> 排产 -> 下达 -> 开工
 #   -> 报工x2 -> 自动完工 -> outbox 标记已投递
 #   反例: operator 访问 system:user:list 403; data_scope=1 查不到他人工单; 审计可分页查询
-# 前置: just dev-up 已启动中间件与迁移, hms-backend 运行于 :8088。
+# 前置: just dev-up 已启动中间件与迁移, mes-backend 运行于 :8088。
 $ErrorActionPreference = "Stop"
-$base = if ($env:HMS_API_BASE) { $env:HMS_API_BASE } else { "http://127.0.0.1:8088" }
+$base = if ($env:MES_API_BASE) { $env:MES_API_BASE } else { "http://127.0.0.1:8088" }
 $suffix = Get-Random -Minimum 1000 -Maximum 9999
 
 function Invoke-Api {
@@ -101,7 +101,7 @@ Write-Host "  自动完工确认: status=$($detail.status) completed=$($detail.c
 Step "验证 mq_outbox 已投递"
 $dispatched = $false
 for ($i = 0; $i -lt 15; $i++) {
-    $outbox = docker exec hms-postgres psql -U hms -d hms -t -A -c "SELECT COUNT(*) FROM mq_outbox WHERE routing_key='cmd.stop_collection' AND status = 1 AND sent_at IS NOT NULL AND payload LIKE '%$($wo.work_order_no)%';"
+    $outbox = docker exec mes-postgres psql -U mes -d mes -t -A -c "SELECT COUNT(*) FROM mq_outbox WHERE routing_key='cmd.stop_collection' AND status = 1 AND sent_at IS NOT NULL AND payload LIKE '%$($wo.work_order_no)%';"
     if ([int]$outbox -ge 1) { $dispatched = $true; break }
     Start-Sleep -Seconds 1
 }

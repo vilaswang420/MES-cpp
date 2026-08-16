@@ -1,14 +1,14 @@
 // perf/k6/m1_baseline.js — M1 出口性能基线 (校准版)
 // 计划标准: 500 VU 混合场景 (登录 10% / 查询 70% / 报工 20%) 10 分钟,
 //           P95 < 300ms, 错误率 < 0.5%。
-// 前置: just dev-up 已就绪, hms-backend 运行于 :8088 (可用 HMS_API_BASE 覆盖)。
+// 前置: just dev-up 已就绪, mes-backend 运行于 :8088 (可用 MES_API_BASE 覆盖)。
 // 执行: k6 run perf/k6/m1_baseline.js
 import http from "k6/http";
 import { check } from "k6";
 import { Rate } from "k6/metrics";
 import exec from "k6/execution";
 
-const BASE = __ENV.HMS_API_BASE || "http://127.0.0.1:8088";
+const BASE = __ENV.MES_API_BASE || "http://127.0.0.1:8088";
 const HEADERS = { "Content-Type": "application/json" };
 
 // 业务层错误率 (响应信封 code != 200), 与 HTTP 层 http_req_failed 分开统计
