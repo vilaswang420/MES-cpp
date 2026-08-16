@@ -195,7 +195,9 @@ void login(const nlohmann::json& body, const std::string& clientIp, JsonCb onOk,
             // bcrypt cost=10 为 CPU 密集计算 (~50-100ms), 未命中缓存时卸载到工作线程,
             // 完成后回 IO 线程继续, 避免阻塞事件循环拖垮 P95
             auto hash = row["password_hash"].as<std::string>();
-            auto cacheKey = password + "|" + hash;
+            // P3-4.2: 缓存 key 不再含明文密码 (原 password|hash 使明文驻留进程内存 60s),
+            //         改 username|ip|hash —— 同用户同密码 hash+同 IP 命中率不变, 压测收益保留
+            auto cacheKey = username + "|" + clientIp + "|" + hash;
             // 缓存命中直接在 IO 线程短路 (免去线程池调度往返)
             if (verifyCacheGet(cacheKey)) {
                 handleVerified(userId, row, clientIp, true, std::move(onOk), std::move(onErr));
