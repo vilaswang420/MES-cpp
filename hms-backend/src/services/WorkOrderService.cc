@@ -357,6 +357,27 @@ drogon::Task<nlohmann::json> report(int64_t id, const nlohmann::json& body, cons
     auto db = drogon::app().getDbClient();
     auto trans = co_await db->newTransactionCoro();
 
+    // P1-2.4 质检门禁: 灰度开关 quality_gate_enabled (sys_configs, 默认开启可回退);
+    // 需质检工序 (prod_process_steps.quality_check=true) 报工前须已有合格/让步检验记录
+    // (qc_inspections.result IN (1,3)); 无记录则 409 拒绝 (事务未提交, 数量不变)。
+    // 注: 检验记录 operation_id 可为 NULL (创建时未关联工序), 兼容按工单级匹配;
+    // 工序不存在或 process_step_id 为 NULL (老数据) 时跳过门禁 (无法判定, 降级放行)。
+    auto gate = co_await trans->execSqlCoro(
+        "SELECT ps.quality_check, "
+        "  COALESCE((SELECT config_value FROM sys_configs WHERE config_key = "
+        "  'quality_gate_enabled'), 'true') = 'true' AS gate_enabled, "
+        "  EXISTS (SELECT 1 FROM qc_inspections qi "
+        "          WHERE qi.work_order_id = $1 "
+        "            AND (qi.operation_id = op.id OR qi.operation_id IS NULL) "
+        "            AND qi.result IN (1, 3)) AS inspected "
+        "FROM prod_work_order_operations op "
+        "JOIN prod_process_steps ps ON ps.id = op.process_step_id "
+        "WHERE op.work_order_id = $1 AND op.step_seq = $2",
+        SqlArg(id), SqlArg(stepSeq));
+    if (!gate.empty() && gate[0]["quality_check"].as<bool>() &&
+        gate[0]["gate_enabled"].as<bool>() && !gate[0]["inspected"].as<bool>())
+        throw Conflict("工序需质检: 尚无合格/让步检验记录, 请先完成质检后报工");
+
     // 单 SQL 合并更新 (性能优化: 1 次往返替代 SELECT FOR UPDATE x2 + UPDATE x2,
     // 行锁持有期压缩到仅剩本语句 + COMMIT 等待):
     //  - CTE 内条件 UPDATE 工序: completed_qty + delta <= plan_qty 原子防超报, 满量置完工
