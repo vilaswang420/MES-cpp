@@ -15,6 +15,7 @@
 #include "models/WorkOrderStateMachine.hh"
 #include "mq/OutboxDispatcher.hh"
 #include "utils/CircuitBreaker.hh"
+#include "utils/IntegRules.hh"
 #include "utils/TimeUtils.hh"
 
 // ERP/WMS 集成实现 (计划任务 23)。
@@ -451,9 +452,9 @@ drogon::Task<nlohmann::json> listLogs(int page, int pageSize, const std::string&
 
     auto offset = (int64_t)(page - 1) * pageSize;
     // NULL 哨兵动态过滤: 固定 SQL 零拼接, systemType/status 任意组合均生效
-    // (历史实现两个独立 if 分支, systemType=ERP 时 status 过滤被跳过)
-    auto typeArg = (systemType == "ERP" || systemType == "WMS") ? SqlArg(systemType) : SqlArgNull();
-    auto statusArg = (status >= 0 && status <= 2) ? SqlArg(status) : SqlArgNull();
+    // (历史实现两个独立 if 分支, systemType=ERP 时 status 过滤被跳过; 判定规则见 IntegRules.hh)
+    auto typeArg = IntegRules::validSystemType(systemType) ? SqlArg(systemType) : SqlArgNull();
+    auto statusArg = IntegRules::validStatusFilter(status) ? SqlArg(status) : SqlArgNull();
     auto cntRow = co_await db->execSqlCoro(
         "SELECT COUNT(*) AS cnt FROM integ_sync_logs "
         "WHERE ($1::text IS NULL OR system_type = $1) AND ($2::int IS NULL OR status = $2)",
@@ -485,12 +486,8 @@ drogon::Task<nlohmann::json> retryLog(int64_t logId) {
     auto cfg = requireConfig(co_await loadConfig(systemType), systemType);
 
     auto url = rows[0]["request_url"].as<std::string>();
-    std::string method = "POST", path = url;
-    auto sp = url.find(' ');
-    if (sp != std::string::npos) {
-        method = url.substr(0, sp);
-        path = url.substr(sp + 1);
-    }
+    // "METHOD path" 解析 (规则见 IntegRules.hh, 无空格按历史语义默认 POST)
+    auto [method, path] = IntegRules::parseMethodPath(url);
     nlohmann::json payload;
     try {
         payload = nlohmann::json::parse(rows[0]["request_body"].as<std::string>());

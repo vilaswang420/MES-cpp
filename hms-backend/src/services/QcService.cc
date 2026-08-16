@@ -8,6 +8,7 @@
 #include <random>
 
 #include "common/SqlParam.hh"
+#include "utils/QcRules.hh"
 
 namespace hms::QcService {
 
@@ -355,7 +356,7 @@ void listDefects(int page, int pageSize, int64_t workOrderId, int disposition,
 void handleDefect(int64_t id, const nlohmann::json& body, int64_t userId, JsonCb onOk,
                   ErrCb onErr) {
     int disposition = body.value("disposition", 0);
-    if (disposition < 1 || disposition > 4)
+    if (!QcRules::validDisposition(disposition))
         return onErr(400, "disposition 取值 1-4 (返工/返修/报废/让步)");
 
     auto db = drogon::app().getDbClient();
@@ -393,13 +394,12 @@ void statistics(const std::string& startDate, const std::string& endDate, JsonCb
         [startDate, endDate, onOk, onErr](const drogon::orm::Result& r) {
             auto total = r[0]["total"].as<int64_t>();
             auto passCnt = r[0]["pass_cnt"].as<int64_t>();
-            nlohmann::json summary = {
-                {"total", total},
-                {"pass_cnt", passCnt},
-                {"fail_cnt", r[0]["fail_cnt"].as<int64_t>()},
-                {"concession_cnt", r[0]["concession_cnt"].as<int64_t>()},
-                {"defect_total", r[0]["defect_total"].as<int64_t>()},
-                {"first_pass_rate", total > 0 ? passCnt * 100.0 / total : 0.0}};
+            nlohmann::json summary = {{"total", total},
+                                      {"pass_cnt", passCnt},
+                                      {"fail_cnt", r[0]["fail_cnt"].as<int64_t>()},
+                                      {"concession_cnt", r[0]["concession_cnt"].as<int64_t>()},
+                                      {"defect_total", r[0]["defect_total"].as<int64_t>()},
+                                      {"first_pass_rate", QcRules::firstPassRate(total, passCnt)}};
             // 第 2 步: 缺陷类别分布
             auto db2 = drogon::app().getDbClient();
             db2->execSqlAsync(

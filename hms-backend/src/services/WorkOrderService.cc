@@ -12,6 +12,7 @@
 #include "common/SqlParam.hh"
 #include "models/WorkOrderStateMachine.hh"
 #include "mq/OutboxDispatcher.hh"
+#include "utils/ReportRules.hh"
 #include "utils/TimeUtils.hh"
 
 namespace hms::WorkOrderService {
@@ -351,9 +352,14 @@ drogon::Task<nlohmann::json> report(int64_t id, const nlohmann::json& body, cons
     auto goodQty = body.value("good_qty", 0);
     auto defectQty = body.value("defect_qty", 0);
     auto scrapQty = body.value("scrap_qty", 0);
-    auto delta = goodQty + defectQty + scrapQty;
-    if (stepSeq <= 0 || delta <= 0)
-        throw BadRequest("step_seq 与报工数量必填且大于 0");
+    // P2-3.2 规则统一入口: 序号为正 / 数量非负 / 总量为正 (规则见 ReportRules.hh, 单测覆盖)
+    if (!ReportRules::validStep(stepSeq))
+        throw BadRequest("step_seq 必填且大于 0");
+    if (!ReportRules::validQty(goodQty, defectQty, scrapQty))
+        throw BadRequest("good_qty/defect_qty/scrap_qty 不可为负");
+    auto delta = ReportRules::totalDelta(goodQty, defectQty, scrapQty);
+    if (delta <= 0)
+        throw BadRequest("报工数量 (good+defect+scrap) 必须大于 0");
 
     auto db = drogon::app().getDbClient();
     auto trans = co_await db->newTransactionCoro();
