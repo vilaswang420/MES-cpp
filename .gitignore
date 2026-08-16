@@ -43,6 +43,9 @@ deploy/nginx/certs/
 tmp_*
 *.bak
 
+# 本地归档 (沙箱无法删除文件, mv 到此目录替代删除)
+_archive/
+
 # 本地开发工具 (clang-format 等 pip --target 安装)
 .tools/
 
