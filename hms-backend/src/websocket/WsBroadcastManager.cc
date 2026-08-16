@@ -22,9 +22,9 @@ namespace hms::WsBroadcastManager {
 namespace {
 
 constexpr const char* kRedisPrefix = "ws:broadcast:";
-constexpr double kMergeTickSec = 0.2; // ??????? = 5Hz ??
-// ?????: drogon send ?????, ??????? + trantor ????????;
-// ???????????????????
+constexpr double kMergeTickSec = 0.2; // 合并发送 tick = 5Hz 轮询
+// 说明: drogon send 线程安全, 合并缓冲 + trantor 定时器轮询发送;
+// 避免高频消息逐条直发导致连接压力
 constexpr size_t kMaxSubsPerChannel = 2000;
 
 const std::vector<std::string> kChannels = {"production.realtime", "device.status", "alert",
@@ -36,7 +36,7 @@ struct Subscriber {
 
 std::mutex g_mu;
 std::unordered_map<std::string, std::vector<Subscriber>> g_subs;
-// ????: ??????????, tick ?????
+// 待发合并: 同频道仅保留最新一条, tick 时批量发送
 std::unordered_map<std::string, std::string> g_pending;
 
 std::atomic<bool> g_stop{false};
@@ -76,8 +76,8 @@ void drainPending() {
     }
 }
 
-// ---- ??? leader ?? (???? 26): production.realtime ????????? ----
-// Redis ?? ws:realtime:leader (PX 3000, 1Hz ??); ??????? 3s ????????
+// ---- 实时 leader 选举 (计划任务 26): production.realtime 推送调度 ----
+// Redis 键 ws:realtime:leader (PX 3000, 1Hz 续约); 多实例仅 leader 触发查询推送
 const std::string kLeaderKey = "ws:realtime:leader";
 const std::string kInstanceId = [] {
     std::random_device rd;
@@ -86,8 +86,8 @@ const std::string kInstanceId = [] {
     return oss.str();
 }();
 
-// ?????????: 1Hz ?????? (status=3) ??
-// (????????: leader ????????????, ? publish?Redis ?????)
+// 实时推送查询: 1Hz 查询进行中工单 (status=3) 并推送
+// (多实例: 仅 leader 抢占成功后推送, 经 Redis Pub/Sub 分发到各实例)
 void queryAndPushRealtime() {
     auto db = drogon::app().getDbClient();
     db->execSqlAsync(
@@ -100,19 +100,23 @@ void queryAndPushRealtime() {
         "WHERE wo.status = 3 ORDER BY wo.updated_at DESC LIMIT 20",
         [](const drogon::orm::Result& r) {
             for (const auto& row : r) {
-                auto planQty = row["plan_qty"].as<int>();
-                auto goodQty = row["good_qty"].as<int>();
+                auto planQty = row["plan_qty"].isNull() ? 0 : row["plan_qty"].as<int>();
+                auto goodQty = row["good_qty"].isNull() ? 0 : row["good_qty"].as<int>();
+                auto completedQty =
+                    row["completed_qty"].isNull() ? 0 : row["completed_qty"].as<int>();
+                auto defectQty = row["defect_qty"].isNull() ? 0 : row["defect_qty"].as<int>();
+                auto status = row["status"].isNull() ? 0 : row["status"].as<int>();
                 nlohmann::json payload = {
                     {"line_id", row["line_id"].isNull() ? 0 : row["line_id"].as<int64_t>()},
                     {"line_name", row["line_name"].as<std::string>()},
                     {"work_order_no", row["work_order_no"].as<std::string>()},
                     {"product_name", row["product_name"].as<std::string>()},
                     {"target_qty", planQty},
-                    {"completed_qty", row["completed_qty"].as<int>()},
+                    {"completed_qty", completedQty},
                     {"good_qty", goodQty},
-                    {"defect_qty", row["defect_qty"].as<int>()},
+                    {"defect_qty", defectQty},
                     {"oee", planQty > 0 ? goodQty * 100.0 / planQty : 0.0},
-                    {"status", row["status"].as<int>()},
+                    {"status", status},
                     {"timestamp", TimeUtils::nowUtcIso()}};
                 publish("production.realtime", payload);
             }
@@ -122,7 +126,7 @@ void queryAndPushRealtime() {
         });
 }
 
-// 1Hz tick: ?????? ?? ??????????, ???? NX ?? (?????)
+// 1Hz tick: 尝试抢占 leader 锁, 抢占成功则推送, 使用 NX 保证仅 leader (多实例)
 void publishProductionRealtime() {
     auto rdb = drogon::app().getRedisClient();
     rdb->execCommandAsync(
@@ -156,17 +160,17 @@ void publishProductionRealtime() {
         [](const drogon::nosql::RedisException&) {}, "GET %s", kLeaderKey.c_str());
 }
 
-// ????????????????? (?????? Redis ????????)
+// 本地合并入待发缓冲 (避免高频消息直接穿透 Redis 通道)
 void publishLocal(const std::string& channel, const nlohmann::json& payload) {
     auto env = envelope(channel, payload);
     std::lock_guard lk(g_mu);
-    g_pending[channel] = std::move(env); // ???????? (????)
+    g_pending[channel] = std::move(env); // 同频道仅保留最新 (合并)
 }
 
-// Redis Pub/Sub ???? (hiredis ????; ?? 5s ??)
-// ?: ???????? redisSetTimeout ?? Windows/hiredis ????????
-// redisGetReply ???? REDIS_ERR_TIMEOUT ???????? (??),
-// ????????; ?????????? (detach ??)
+// Redis Pub/Sub 订阅线程 (hiredis 阻塞读取; 断线 5s 重连)
+// 注: 阻塞读取依赖 redisSetTimeout, Windows/hiredis 行为有差异;
+// redisGetReply 超时返回 REDIS_ERR_TIMEOUT 时按断线处理 (重连),
+// 需释放旧连接; 线程以 detach 方式运行 (随进程生命周期)
 void redisSubscribeLoop(const std::string& host, int port) {
     while (!g_stop) {
         redisContext* ctx = redisConnectWithTimeout(host.c_str(), port, {5, 0});
@@ -199,7 +203,7 @@ void redisSubscribeLoop(const std::string& host, int port) {
             if (rc != REDIS_OK) {
                 LOG_WARN << "[ws] redisGetReply failed err=" << ctx->err << " "
                          << (ctx->errstr ? ctx->errstr : "");
-                break; // ???? -> ??
+                break; // 断线 -> 重连
             }
             if (msg && msg->type == REDIS_REPLY_ARRAY && msg->elements == 3 &&
                 std::string(msg->element[0]->str) == "message") {
@@ -212,11 +216,11 @@ void redisSubscribeLoop(const std::string& host, int port) {
                         auto j = nlohmann::json::parse(body);
                         if (j.value("version", "") == "1.0" && j.value("channel", "") == channel &&
                             j.contains("payload")) {
-                            // ?????? (??? publish() ??): ???????, ?????
+                            // 标准信封 (与本地 publish() 一致): 直接合并入待发缓冲
                             std::lock_guard lk(g_mu);
                             g_pending[channel] = body;
                         } else {
-                            // ??? (AlertHandler/DataIngestHandler ??): ???????
+                            // 非标准信封 (AlertHandler/DataIngestHandler 直发): 本地合并兜底
                             publishLocal(channel, j);
                         }
                     } catch (const std::exception& e) {
@@ -235,12 +239,12 @@ void redisSubscribeLoop(const std::string& host, int port) {
 
 } // namespace
 
-// ?????? (???, ?? 26): ??? Redis Pub/Sub ?? ??
-// ??? redisSubscribeLoop ??????????????????,
-// ????????? (??????????????)?
+// 广播发布 (多实例, 计划任务 26): 经 Redis Pub/Sub 分发到各实例
+// 各实例由 redisSubscribeLoop 订阅消费,
+// 最终向本实例订阅连接推送 (跨实例广播)
 void publish(const std::string& channel, const nlohmann::json& payload) {
-    // ????????: ?????????? (????????????);
-    // ?????? production.realtime (1Hz ??), Redis ??????
+    // 发布策略: 统一 v1.0 信封 (contracts/ws-push.schema.json);
+    // 高频实时数据先本地合并, Redis 通道负责跨实例分发
     auto env = envelope(channel, payload);
     auto rdb = drogon::app().getRedisClient();
     auto ch = std::string(kRedisPrefix) + channel;
@@ -286,7 +290,7 @@ size_t subscriberCount(const std::string& channel) {
 
 void start() {
     g_stop = false;
-    // Redis ????? drogon redis_clients[0] ???? (custom_config ???)
+    // Redis 地址取自 drogon custom_config (redis_host/redis_port), 默认本机
     std::string host = "127.0.0.1";
     int port = 6379;
     const auto& custom = drogon::app().getCustomConfig();
@@ -296,7 +300,7 @@ void start() {
         port = custom["redis_port"].asInt();
     g_redisThread = std::thread([host, port] { redisSubscribeLoop(host, port); });
     g_redisThread.detach();
-    // ??????? tick + production.realtime ???
+    // 启动合并 tick + production.realtime 实时推送
     drogon::app().getLoop()->runEvery(kMergeTickSec, drainPending);
     drogon::app().getLoop()->runEvery(1.0, publishProductionRealtime);
 }

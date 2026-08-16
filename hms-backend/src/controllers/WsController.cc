@@ -8,16 +8,16 @@
 #include "utils/JwtUtils.hh"
 #include "websocket/WsBroadcastManager.hh"
 
-// ?? WebSocket ?? (???? 21 / ???? 4.9 ?):
-// ?? /ws?token=JWT ? /ws/dashboard?token=JWT (??????????,
-// ??? handleNewConnection ? query token ????, ?????);
-// ????? {"action":"subscribe","channel":"..."} ? {"action":"subscribe","channels":[...]}
-// ?????? (contracts/ws-push.schema.json)?
+// WebSocket 控制器 (计划任务 21 / 功能清单 4.9):
+// 提供 /ws?token=JWT 与 /ws/dashboard?token=JWT 两个端点 (鉴权逻辑一致,
+// 在 handleNewConnection 中校验 query token, 失败即断开连接);
+// 支持订阅消息 {"action":"subscribe","channel":"..."} 与 {"action":"subscribe","channels":[...]}
+// 推送统一遵循标准信封 (contracts/ws-push.schema.json)
 namespace hms {
 
 namespace {
 
-// ??????? (ws-push.schema.json enum); ??????????
+// 允许订阅的频道 (与 ws-push.schema.json enum 一致); 其余频道一律拒绝
 bool channelAllowed(const std::string& ch) {
     return ch == "production.realtime" || ch == "device.status" || ch == "alert" ||
            ch == "workorder.event";
@@ -33,11 +33,12 @@ class WsDashboardController : public drogon::WebSocketController<WsDashboardCont
   public:
     void handleNewConnection(const drogon::HttpRequestPtr& req,
                              const drogon::WebSocketConnectionPtr& conn) override {
-        // ??? WebSocket ???? Authorization ?, ? query token ??
+        // 本端点无 WebSocket 握手 Authorization 头, 改用 query token 鉴权
         auto token = req->getParameter("token");
         auto payload = token.empty() ? std::nullopt : JwtUtils::verifyAccessToken(token);
         if (!payload) {
-            sendText(conn, nlohmann::json{{"type", "error"}, {"message", "token ?????"}}.dump());
+            sendText(conn,
+                     nlohmann::json{{"type", "error"}, {"message", "token 无效或已过期"}}.dump());
             conn->shutdown();
             return;
         }
@@ -54,11 +55,11 @@ class WsDashboardController : public drogon::WebSocketController<WsDashboardCont
         try {
             msg = nlohmann::json::parse(message);
         } catch (...) {
-            return; // ??????
+            return; // 消息非 JSON, 忽略
         }
         if (msg.value("action", "") != "subscribe")
             return;
-        // ????? (channel) ???? (channels) ????
+        // 兼容单频道 (channel) 与批量 (channels) 两种写法
         std::vector<std::string> channels;
         if (msg.contains("channel") && msg["channel"].is_string())
             channels.push_back(msg["channel"].get<std::string>());
@@ -70,8 +71,9 @@ class WsDashboardController : public drogon::WebSocketController<WsDashboardCont
         nlohmann::json okList = nlohmann::json::array();
         for (const auto& ch : channels) {
             if (!channelAllowed(ch)) {
-                sendText(conn,
-                         nlohmann::json{{"type", "error"}, {"message", "????: " + ch}}.dump());
+                sendText(
+                    conn,
+                    nlohmann::json{{"type", "error"}, {"message", "频道不允许: " + ch}}.dump());
                 continue;
             }
             WsBroadcastManager::subscribe(ch, conn);
