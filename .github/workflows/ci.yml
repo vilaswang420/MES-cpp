@@ -107,7 +107,9 @@ jobs:
                   # 注意: 工具链文件在 vcpkg 仓库的 scripts/buildsystems/ 子目录, 不在根目录
                   test -f "$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" || { echo "::error::vcpkg.cmake 不存在, VCPKG_ROOT=$VCPKG_ROOT"; ls -R "$VCPKG_ROOT" | head -30; exit 1; }
                   cmake -S hms-backend -B build -G Ninja \
-                    -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DCMAKE_BUILD_TYPE=Release
+                    -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+                    -DVCPKG_TARGET_TRIPLET=x64-linux-dynamic \
+                    -DCMAKE_BUILD_TYPE=Release
                   cmake --build build --parallel
             - name: 单元测试 (状态机/data_scope/JWT)
               run: |
@@ -164,5 +166,7 @@ jobs:
               run: |
                   test -f "$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" || { echo "::error::vcpkg.cmake 不存在, VCPKG_ROOT=$VCPKG_ROOT"; ls -R "$VCPKG_ROOT" | head -30; exit 1; }
                   cmake -S hms-iot -B build-iot -G Ninja \
-                    -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DCMAKE_BUILD_TYPE=Release
+                    -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+                    -DVCPKG_TARGET_TRIPLET=x64-linux-dynamic \
+                    -DCMAKE_BUILD_TYPE=Release
                   cmake --build build-iot --parallel
