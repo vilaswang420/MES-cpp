@@ -28,6 +28,8 @@ class WorkOrderController : public drogon::HttpController<WorkOrderController> {
                   drogon::Put);
     ADD_METHOD_TO(WorkOrderController::close, "/api/v1/production/work-orders/{1}/close",
                   drogon::Put);
+    ADD_METHOD_TO(WorkOrderController::cancel, "/api/v1/production/work-orders/{1}/cancel",
+                  drogon::Put);
     ADD_METHOD_TO(WorkOrderController::report, "/api/v1/production/work-orders/{1}/report",
                   drogon::Post);
     METHOD_LIST_END
@@ -102,6 +104,11 @@ class WorkOrderController : public drogon::HttpController<WorkOrderController> {
 
     drogon::Task<drogon::HttpResponsePtr> close(drogon::HttpRequestPtr req, int64_t id) {
         co_return co_await transitImpl(req, id, "close");
+    }
+
+    // 取消工单: 仅待排产/已排产/已下达 (状态机 Cancel 事件), 开工后 409
+    drogon::Task<drogon::HttpResponsePtr> cancel(drogon::HttpRequestPtr req, int64_t id) {
+        co_return co_await transitImpl(req, id, "cancel");
     }
 
     drogon::Task<drogon::HttpResponsePtr> report(drogon::HttpRequestPtr req, int64_t id) {
