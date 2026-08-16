@@ -271,9 +271,9 @@ void profile(int64_t userId, JsonCb onOk, ErrCb onErr) {
         "SELECT u.id, u.username, u.real_name, u.employee_no, u.email, u.phone, u.gender, "
         "u.last_login_at, COALESCE(d.dept_name,'') AS dept_name "
         "FROM sys_users u LEFT JOIN sys_departments d ON d.id = u.dept_id WHERE u.id = $1",
-        [userId, onOk](const drogon::orm::Result& r) {
+        [userId, onOk, onErr](const drogon::orm::Result& r) {
             if (r.empty())
-                return;
+                return onErr(404, "用户不存在");
             auto row = r[0];
             nlohmann::json data;
             data["id"] = row["id"].as<int64_t>();
