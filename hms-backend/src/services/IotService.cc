@@ -57,25 +57,25 @@ nlohmann::json deviceRow(const drogon::orm::Row& row) {
 }
 
 nlohmann::json sensorRow(const drogon::orm::Row& row) {
-    return {{"id", row["id"].as<int64_t>()},
-            {"device_id", row["device_id"].as<int64_t>()},
-            {"sensor_code", row["sensor_code"].as<std::string>()},
-            {"sensor_name", row["sensor_name"].as<std::string>()},
-            {"data_type", row["data_type"].as<std::string>()},
-            {"unit", optStr(row, "unit")},
-            {"register_addr", optStr(row, "register_addr")},
-            {"min_value", row["min_value"].isNull() ? nlohmann::json(nullptr)
-                                                    : nlohmann::json(row["min_value"].as<double>())},
-            {"max_value", row["max_value"].isNull() ? nlohmann::json(nullptr)
-                                                    : nlohmann::json(row["max_value"].as<double>())},
-            {"alarm_low", row["alarm_low"].isNull() ? nlohmann::json(nullptr)
-                                                    : nlohmann::json(row["alarm_low"].as<double>())},
-            {"alarm_high",
-             row["alarm_high"].isNull() ? nlohmann::json(nullptr)
-                                        : nlohmann::json(row["alarm_high"].as<double>())},
-            {"sample_interval", row["sample_interval"].as<int>()},
-            {"is_key_metric", row["is_key_metric"].as<bool>()},
-            {"status", row["status"].as<int>()}};
+    return {
+        {"id", row["id"].as<int64_t>()},
+        {"device_id", row["device_id"].as<int64_t>()},
+        {"sensor_code", row["sensor_code"].as<std::string>()},
+        {"sensor_name", row["sensor_name"].as<std::string>()},
+        {"data_type", row["data_type"].as<std::string>()},
+        {"unit", optStr(row, "unit")},
+        {"register_addr", optStr(row, "register_addr")},
+        {"min_value", row["min_value"].isNull() ? nlohmann::json(nullptr)
+                                                : nlohmann::json(row["min_value"].as<double>())},
+        {"max_value", row["max_value"].isNull() ? nlohmann::json(nullptr)
+                                                : nlohmann::json(row["max_value"].as<double>())},
+        {"alarm_low", row["alarm_low"].isNull() ? nlohmann::json(nullptr)
+                                                : nlohmann::json(row["alarm_low"].as<double>())},
+        {"alarm_high", row["alarm_high"].isNull() ? nlohmann::json(nullptr)
+                                                  : nlohmann::json(row["alarm_high"].as<double>())},
+        {"sample_interval", row["sample_interval"].as<int>()},
+        {"is_key_metric", row["is_key_metric"].as<bool>()},
+        {"status", row["status"].as<int>()}};
 }
 
 constexpr const char* kDeviceBaseCols =
@@ -84,9 +84,9 @@ constexpr const char* kDeviceBaseCols =
 
 // 时间桶白名单 (防 SQL 注入: interval 只允许枚举值, 换算为秒后作 $ 参数)
 bool intervalToSeconds(const std::string& interval, int64_t& sec) {
-    static const std::map<std::string, int64_t> kMap = {
-        {"1m", 60},   {"5m", 300},  {"15m", 900}, {"30m", 1800},
-        {"1h", 3600}, {"6h", 21600}, {"1d", 86400}};
+    static const std::map<std::string, int64_t> kMap = {{"1m", 60},    {"5m", 300},  {"15m", 900},
+                                                        {"30m", 1800}, {"1h", 3600}, {"6h", 21600},
+                                                        {"1d", 86400}};
     auto it = kMap.find(interval);
     if (it == kMap.end())
         return false;
@@ -149,11 +149,12 @@ void listDevices(int page, int pageSize, const std::string& keyword, int status,
 void getDevice(int64_t id, JsonCb onOk, ErrCb onErr) {
     auto db = drogon::app().getDbClient();
     db->execSqlAsync(
-        std::string("SELECT ") + kDeviceBaseCols + ", d.connection_config, "
-        "(SELECT COALESCE(json_agg(s.* ORDER BY s.id), '[]'::json) FROM iot_sensors s "
-        " WHERE s.device_id = d.id) AS sensors "
-        "FROM iot_devices d LEFT JOIN iot_device_types t ON t.id = d.type_id "
-        "WHERE d.id = $1 AND d.deleted = FALSE",
+        std::string("SELECT ") + kDeviceBaseCols +
+            ", d.connection_config, "
+            "(SELECT COALESCE(json_agg(s.* ORDER BY s.id), '[]'::json) FROM iot_sensors s "
+            " WHERE s.device_id = d.id) AS sensors "
+            "FROM iot_devices d LEFT JOIN iot_device_types t ON t.id = d.type_id "
+            "WHERE d.id = $1 AND d.deleted = FALSE",
         [onOk](const drogon::orm::Result& r) {
             if (r.empty())
                 return onOk(nullptr); // controller 转 404
@@ -196,8 +197,7 @@ void createDevice(const nlohmann::json& body, JsonCb onOk, ErrCb onErr) {
             ? SqlArg(body.value("workstation_id", (int64_t)0))
             : SqlArgNull(),
         ip.empty() ? SqlArgNull() : SqlArg(ip), SqlArg(body.value("port", 0)), protocol, connCfg,
-        SqlArg(body.value("status", 0)),
-        installedAt.empty() ? SqlArgNull() : SqlArg(installedAt));
+        SqlArg(body.value("status", 0)), installedAt.empty() ? SqlArgNull() : SqlArg(installedAt));
 }
 
 void updateDevice(int64_t id, const nlohmann::json& body, JsonCb onOk, ErrCb onErr) {
@@ -256,10 +256,9 @@ void deviceStatus(int64_t id, JsonCb onOk, ErrCb onErr) {
                     auto data = nlohmann::json{
                         {"status", status},
                         {"online", status == 1},
-                        {"last_heartbeat_at",
-                         row["last_heartbeat_at"].isNull()
-                             ? std::string()
-                             : row["last_heartbeat_at"].as<std::string>()},
+                        {"last_heartbeat_at", row["last_heartbeat_at"].isNull()
+                                                  ? std::string()
+                                                  : row["last_heartbeat_at"].as<std::string>()},
                         {"device_code", row["device_code"].as<std::string>()}};
                     if (res.type() != drogon::nosql::RedisResultType::kNil)
                         data["latest"] = parseJsonField(res.asString());
@@ -269,13 +268,13 @@ void deviceStatus(int64_t id, JsonCb onOk, ErrCb onErr) {
                 },
                 [status, row, onOk](const drogon::nosql::RedisException&) {
                     // Redis 不可用降级: 仅返回 DB 状态
-                    onOk(nlohmann::json{{"status", status},
-                                        {"online", status == 1},
-                                        {"last_heartbeat_at",
-                                         row["last_heartbeat_at"].isNull()
-                                             ? std::string()
-                                             : row["last_heartbeat_at"].as<std::string>()},
-                                        {"latest", nullptr}});
+                    onOk(nlohmann::json{
+                        {"status", status},
+                        {"online", status == 1},
+                        {"last_heartbeat_at", row["last_heartbeat_at"].isNull()
+                                                  ? std::string()
+                                                  : row["last_heartbeat_at"].as<std::string>()},
+                        {"latest", nullptr}});
                 },
                 "GET %s", key.c_str());
         },
@@ -373,19 +372,20 @@ void sensorHistory(int64_t sensorId, const std::string& startTime, const std::st
     // 时间桶聚合 + 区间统计两条查询; 桶秒数作为参数避免拼接
     db->execSqlAsync(
         "SELECT s.sensor_name, s.unit FROM iot_sensors s WHERE s.id = $1",
-        [sensorId, startTime, endTime, step, aggFn, onOk,
-         onErr](const drogon::orm::Result& meta) {
+        [sensorId, startTime, endTime, step, aggFn, onOk, onErr](const drogon::orm::Result& meta) {
             if (meta.empty())
                 return onOk(nullptr);
             auto sensorName = meta[0]["sensor_name"].as<std::string>();
             auto unit = optStr(meta[0], "unit");
             auto db2 = drogon::app().getDbClient();
             db2->execSqlAsync(
-                "SELECT to_timestamp(floor(extract(epoch FROM collected_at) / $3) * $3) AS bucket, "
-                + aggFn +
+                "SELECT to_timestamp(floor(extract(epoch FROM collected_at) / $3) * $3) AS "
+                "bucket, " +
+                    aggFn +
                     "(value_num) AS val, COUNT(*) AS cnt "
                     "FROM iot_raw_data WHERE sensor_id = $1 "
-                    "AND collected_at >= COALESCE(NULLIF($2,'')::timestamptz, NOW() - INTERVAL '1 hour') "
+                    "AND collected_at >= COALESCE(NULLIF($2,'')::timestamptz, NOW() - INTERVAL '1 "
+                    "hour') "
                     "AND collected_at < COALESCE(NULLIF($4,'')::timestamptz, NOW()) "
                     "AND value_num IS NOT NULL "
                     "GROUP BY bucket ORDER BY bucket",
@@ -451,23 +451,23 @@ void listAlerts(int page, int pageSize, int status, int level, int64_t deviceId,
         [page, pageSize, countSql, onOk, onErr](const drogon::orm::Result& r) {
             nlohmann::json listArr = nlohmann::json::array();
             for (const auto& row : r) {
-                listArr.push_back({{"id", row["id"].as<int64_t>()},
-                                   {"device_id", row["device_id"].as<int64_t>()},
-                                   {"device_name", row["device_name"].as<std::string>()},
-                                   {"sensor_id",
-                                    row["sensor_id"].isNull() ? 0 : row["sensor_id"].as<int64_t>()},
-                                   {"alert_type", row["alert_type"].as<std::string>()},
-                                   {"alert_level", row["alert_level"].as<int>()},
-                                   {"alert_value", row["alert_value"].isNull()
-                                                       ? nlohmann::json(nullptr)
-                                                       : nlohmann::json(row["alert_value"].as<double>())},
-                                   {"threshold", row["threshold"].isNull()
-                                                     ? nlohmann::json(nullptr)
-                                                     : nlohmann::json(row["threshold"].as<double>())},
-                                   {"message", optStr(row, "message")},
-                                   {"status", row["status"].as<int>()},
-                                   {"acknowledged_at", optStr(row, "acknowledged_at")},
-                                   {"created_at", optStr(row, "created_at")}});
+                listArr.push_back(
+                    {{"id", row["id"].as<int64_t>()},
+                     {"device_id", row["device_id"].as<int64_t>()},
+                     {"device_name", row["device_name"].as<std::string>()},
+                     {"sensor_id", row["sensor_id"].isNull() ? 0 : row["sensor_id"].as<int64_t>()},
+                     {"alert_type", row["alert_type"].as<std::string>()},
+                     {"alert_level", row["alert_level"].as<int>()},
+                     {"alert_value", row["alert_value"].isNull()
+                                         ? nlohmann::json(nullptr)
+                                         : nlohmann::json(row["alert_value"].as<double>())},
+                     {"threshold", row["threshold"].isNull()
+                                       ? nlohmann::json(nullptr)
+                                       : nlohmann::json(row["threshold"].as<double>())},
+                     {"message", optStr(row, "message")},
+                     {"status", row["status"].as<int>()},
+                     {"acknowledged_at", optStr(row, "acknowledged_at")},
+                     {"created_at", optStr(row, "created_at")}});
             }
             auto db2 = drogon::app().getDbClient();
             db2->execSqlAsync(

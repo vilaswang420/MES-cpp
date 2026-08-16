@@ -58,8 +58,8 @@ void start(const nlohmann::json& config) {
                             [](const drogon::orm::DrogonDbException& e) {
                                 LOG_ERROR << "alert insert failed: " << e.base().what();
                             },
-                            SqlArg(deviceId), SqlArg(sensorId), type, SqlArg(level),
-                            SqlArg(value), SqlArg(threshold), message);
+                            SqlArg(deviceId), SqlArg(sensorId), type, SqlArg(level), SqlArg(value),
+                            SqlArg(threshold), message);
 
                         // Redis PUBLISH -> WS 广播频道 (M2 大屏弹窗)
                         // 载荷补齐大屏所需字段: level 语义映射 (3=critical 2=warning)

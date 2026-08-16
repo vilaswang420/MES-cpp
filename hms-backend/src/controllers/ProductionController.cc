@@ -17,8 +17,7 @@ class ProductionController : public drogon::HttpController<ProductionController>
     ADD_METHOD_TO(ProductionController::lines, "/api/v1/production/lines", drogon::Get);
     ADD_METHOD_TO(ProductionController::createLine, "/api/v1/production/lines", drogon::Post);
     ADD_METHOD_TO(ProductionController::updateLine, "/api/v1/production/lines/{1}", drogon::Put);
-    ADD_METHOD_TO(ProductionController::deleteLine, "/api/v1/production/lines/{1}",
-                  drogon::Delete);
+    ADD_METHOD_TO(ProductionController::deleteLine, "/api/v1/production/lines/{1}", drogon::Delete);
     ADD_METHOD_TO(ProductionController::stations, "/api/v1/production/lines/{1}/stations",
                   drogon::Get);
     // 工艺路线
@@ -31,8 +30,7 @@ class ProductionController : public drogon::HttpController<ProductionController>
                   drogon::Delete);
     // 产品
     ADD_METHOD_TO(ProductionController::products, "/api/v1/production/products", drogon::Get);
-    ADD_METHOD_TO(ProductionController::createProduct, "/api/v1/production/products",
-                  drogon::Post);
+    ADD_METHOD_TO(ProductionController::createProduct, "/api/v1/production/products", drogon::Post);
     ADD_METHOD_TO(ProductionController::updateProduct, "/api/v1/production/products/{1}",
                   drogon::Put);
     ADD_METHOD_TO(ProductionController::deleteProduct, "/api/v1/production/products/{1}",
@@ -47,8 +45,7 @@ class ProductionController : public drogon::HttpController<ProductionController>
         auto traceId = traceIdOf(req);
         try {
             auto data = co_await ProductionService::listLines(
-                paramInt(req, "page", 1), paramInt(req, "page_size", 20),
-                paramStr(req, "keyword"));
+                paramInt(req, "page", 1), paramInt(req, "page_size", 20), paramStr(req, "keyword"));
             co_return ApiResponse::success(data, traceId);
         } catch (...) {
             co_return handleError(std::current_exception(), traceId);
@@ -106,8 +103,7 @@ class ProductionController : public drogon::HttpController<ProductionController>
         auto traceId = traceIdOf(req);
         try {
             auto data = co_await ProductionService::listProcesses(
-                paramInt(req, "page", 1), paramInt(req, "page_size", 20),
-                paramStr(req, "keyword"));
+                paramInt(req, "page", 1), paramInt(req, "page_size", 20), paramStr(req, "keyword"));
             co_return ApiResponse::success(data, traceId);
         } catch (...) {
             co_return handleError(std::current_exception(), traceId);
@@ -155,8 +151,7 @@ class ProductionController : public drogon::HttpController<ProductionController>
         auto traceId = traceIdOf(req);
         try {
             auto data = co_await ProductionService::listProducts(
-                paramInt(req, "page", 1), paramInt(req, "page_size", 20),
-                paramStr(req, "keyword"));
+                paramInt(req, "page", 1), paramInt(req, "page_size", 20), paramStr(req, "keyword"));
             co_return ApiResponse::success(data, traceId);
         } catch (...) {
             co_return handleError(std::current_exception(), traceId);
@@ -203,8 +198,8 @@ class ProductionController : public drogon::HttpController<ProductionController>
     drogon::Task<drogon::HttpResponsePtr> plans(drogon::HttpRequestPtr req) {
         auto traceId = traceIdOf(req);
         try {
-            auto data = co_await ProductionService::listPlans(
-                paramInt(req, "page", 1), paramInt(req, "page_size", 20));
+            auto data = co_await ProductionService::listPlans(paramInt(req, "page", 1),
+                                                              paramInt(req, "page_size", 20));
             co_return ApiResponse::success(data, traceId);
         } catch (...) {
             co_return handleError(std::current_exception(), traceId);

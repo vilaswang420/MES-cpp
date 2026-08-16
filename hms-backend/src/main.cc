@@ -74,9 +74,9 @@ int main(int argc, char** argv) {
         hms::DataIngestHandler::start(mqCfg);     // IoT 数据入库 (任务 19)
         hms::AlertHandler::start(mqCfg);          // 告警落库+广播 (任务 19)
         hms::StopCollectionHandler::start(mqCfg); // 停采消费日志占位
-        hms::WsBroadcastManager::start();         // WS 广播: Redis 订阅+合并推送 (任务 21)
-        hms::startAuditFlusher();                 // 审计批量刷盘
-        hms::MetricsCollector::start();           // Prometheus 指标采集 (任务 28)
+        hms::WsBroadcastManager::start(); // WS 广播: Redis 订阅+合并推送 (任务 21)
+        hms::startAuditFlusher();         // 审计批量刷盘
+        hms::MetricsCollector::start();   // Prometheus 指标采集 (任务 28)
         LOG_INFO << "hms-backend started";
     });
 

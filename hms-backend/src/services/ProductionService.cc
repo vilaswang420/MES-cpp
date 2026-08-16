@@ -126,14 +126,12 @@ drogon::Task<nlohmann::json> listLines(int page, int pageSize, const std::string
     auto where = kwWhere("line_code || ' ' || line_name");
 
     auto db = drogon::app().getDbClient();
-    auto countRes =
-        co_await db->execSqlCoro("SELECT COUNT(*) AS cnt FROM prod_production_lines " + where,
-                                 kwArg);
+    auto countRes = co_await db->execSqlCoro(
+        "SELECT COUNT(*) AS cnt FROM prod_production_lines " + where, kwArg);
     auto rows = co_await db->execSqlCoro(
         "SELECT id, line_code, line_name, workshop, location, capacity_per_hour, status "
         "FROM prod_production_lines " +
-            where + " ORDER BY id LIMIT " + num(pageSize) + " OFFSET " +
-            num((page - 1) * pageSize),
+            where + " ORDER BY id LIMIT " + num(pageSize) + " OFFSET " + num((page - 1) * pageSize),
         kwArg);
 
     nlohmann::json arr = nlohmann::json::array();
@@ -232,8 +230,7 @@ drogon::Task<nlohmann::json> listProducts(int page, int pageSize, const std::str
     auto rows = co_await db->execSqlCoro(
         "SELECT id, product_code, product_name, specification, unit, category, "
         "erp_material_code, process_id, status FROM prod_products " +
-            where + " ORDER BY id LIMIT " + num(pageSize) + " OFFSET " +
-            num((page - 1) * pageSize),
+            where + " ORDER BY id LIMIT " + num(pageSize) + " OFFSET " + num((page - 1) * pageSize),
         kwArg);
 
     nlohmann::json arr = nlohmann::json::array();
@@ -291,10 +288,9 @@ drogon::Task<nlohmann::json> deleteProduct(int64_t id) {
         SqlArg(id));
     if (!ref.empty() && ref[0]["has_ref"].as<bool>())
         throw Conflict("产品已被工单/工艺路线引用, 禁止删除");
-    auto r = co_await db->execSqlCoro(
-        "UPDATE prod_products SET deleted = TRUE, updated_at = NOW() "
-        "WHERE id = $1 AND deleted = FALSE RETURNING id",
-        SqlArg(id));
+    auto r = co_await db->execSqlCoro("UPDATE prod_products SET deleted = TRUE, updated_at = NOW() "
+                                      "WHERE id = $1 AND deleted = FALSE RETURNING id",
+                                      SqlArg(id));
     if (r.empty())
         throw NotFound("产品不存在");
     co_return {{"id", id}, {"deleted", true}};
@@ -308,14 +304,13 @@ drogon::Task<nlohmann::json> listProcesses(int page, int pageSize, const std::st
     bool hasKw = !keyword.empty();
     auto kwArg = hasKw ? SqlArg(keyword) : SqlArgNull();
     // 只列已发布 (status=1) 且未软删; 保留 product_name 左连接
-    std::string where =
-        "WHERE pr.deleted = FALSE AND pr.status = 1 "
-        "AND ($1::text IS NULL OR pr.process_code ILIKE '%' || $1 || '%' "
-        "     OR pr.process_name ILIKE '%' || $1 || '%')";
+    std::string where = "WHERE pr.deleted = FALSE AND pr.status = 1 "
+                        "AND ($1::text IS NULL OR pr.process_code ILIKE '%' || $1 || '%' "
+                        "     OR pr.process_name ILIKE '%' || $1 || '%')";
 
     auto db = drogon::app().getDbClient();
-    auto countRes = co_await db->execSqlCoro(
-        "SELECT COUNT(*) AS cnt FROM prod_processes pr " + where, kwArg);
+    auto countRes =
+        co_await db->execSqlCoro("SELECT COUNT(*) AS cnt FROM prod_processes pr " + where, kwArg);
     auto rows = co_await db->execSqlCoro(
         "SELECT pr.id, pr.process_code, pr.process_name, pr.product_id, pr.version, "
         "pr.total_steps, pr.status, p.product_name "
@@ -359,10 +354,10 @@ drogon::Task<nlohmann::json> createProcess(const nlohmann::json& body, int64_t c
             "INSERT INTO prod_process_steps (process_id, step_seq, step_name, step_code, "
             "workstation_type, std_cycle_time, quality_check, is_key_step) "
             "VALUES ($1,$2::int,$3,$4,NULLIF($5,''),NULLIF($6::int,0),$7::boolean,$8::boolean)",
-            SqlArg(processId), SqlArg(s["step_seq"].get<int>()),
-            s["step_name"].get<std::string>(), s["step_code"].get<std::string>(),
-            s.value("workstation_type", ""), SqlArg(s.value("std_cycle_time", 0)),
-            SqlArg(s.value("quality_check", false)), SqlArg(s.value("is_key_step", false)));
+            SqlArg(processId), SqlArg(s["step_seq"].get<int>()), s["step_name"].get<std::string>(),
+            s["step_code"].get<std::string>(), s.value("workstation_type", ""),
+            SqlArg(s.value("std_cycle_time", 0)), SqlArg(s.value("quality_check", false)),
+            SqlArg(s.value("is_key_step", false)));
 
     if (!co_await commitAwait(std::move(trans)))
         throw Internal("工艺路线事务提交失败");
@@ -417,7 +412,7 @@ drogon::Task<nlohmann::json> listPlans(int page, int pageSize) {
         "FROM prod_production_plans pl "
         "LEFT JOIN prod_production_lines l ON l.id = pl.line_id "
         "ORDER BY pl.plan_date DESC, pl.id DESC LIMIT " +
-            num(pageSize) + " OFFSET " + num((page - 1) * pageSize));
+        num(pageSize) + " OFFSET " + num((page - 1) * pageSize));
 
     nlohmann::json arr = nlohmann::json::array();
     for (const auto& row : rows)
@@ -443,8 +438,7 @@ drogon::Task<nlohmann::json> createPlan(const nlohmann::json& body, int64_t crea
         "INSERT INTO prod_production_plans (plan_no, plan_date, line_id, shift, plan_qty, "
         "status, created_by) VALUES ($1,$2,$3,$4,$5,0,$6) RETURNING id",
         planNo, body["plan_date"].get<std::string>(), SqlArg(body["line_id"].get<int64_t>()),
-        SqlArg(body["shift"].get<int>()), SqlArg(body["plan_qty"].get<int>()),
-        SqlArg(createdBy));
+        SqlArg(body["shift"].get<int>()), SqlArg(body["plan_qty"].get<int>()), SqlArg(createdBy));
     auto planId = ins[0]["id"].as<int64_t>();
 
     if (body.contains("work_order_ids") && body["work_order_ids"].is_array())

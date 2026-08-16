@@ -6,4 +6,4 @@ namespace hms::TimeUtils {
 namespace {
 [[maybe_unused]] const bool kLinked = true;
 }
-}  // namespace hms::TimeUtils
+} // namespace hms::TimeUtils

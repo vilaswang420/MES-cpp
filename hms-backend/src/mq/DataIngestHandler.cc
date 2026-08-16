@@ -26,9 +26,9 @@ using Clock = std::chrono::steady_clock;
 std::atomic<bool> g_stop{false};
 std::thread g_thread;
 
-constexpr int kMaxRetry = 3;        // 7.3 节: x-retry-count 达 3 后拒绝进 DLQ
-constexpr size_t kBatchRows = 500;  // 计划任务 19: 每批 500 条
-constexpr int kFlushWindowMs = 100; // 或 100ms 窗口 flush
+constexpr int kMaxRetry = 3;          // 7.3 节: x-retry-count 达 3 后拒绝进 DLQ
+constexpr size_t kBatchRows = 500;    // 计划任务 19: 每批 500 条
+constexpr int kFlushWindowMs = 100;   // 或 100ms 窗口 flush
 constexpr int kAlertSuppressSec = 30; // 同传感器同向告警抑制窗口
 
 struct Row {
@@ -94,8 +94,7 @@ void refreshSensorCache() {
                     c.hasHighHigh = true;
                     c.highHigh = row["alarm_high_high"].as<double>();
                 }
-                (*m)[sensorKey(row["device_id"].as<int64_t>(), row["sensor_id"].as<int64_t>())] =
-                    c;
+                (*m)[sensorKey(row["device_id"].as<int64_t>(), row["sensor_id"].as<int64_t>())] = c;
             }
             {
                 std::lock_guard lk(g_sensorMtx);
@@ -316,8 +315,8 @@ void flushBatch(std::vector<Row>& rows, std::vector<AmqpClient::Envelope::Delive
             auto key = "device:latest:" + std::to_string(devId);
             auto payload = v.dump();
             rdb->execCommandAsync([](const drogon::nosql::RedisResult&) {},
-                                  [](const drogon::nosql::RedisException&) {},
-                                  "SET %s %s EX 86400", key.c_str(), payload.c_str());
+                                  [](const drogon::nosql::RedisException&) {}, "SET %s %s EX 86400",
+                                  key.c_str(), payload.c_str());
             // device.status 广播 -> WsBroadcastManager (Redis 订阅线程转发到大屏)
             rdb->execCommandAsync([](const drogon::nosql::RedisResult&) {},
                                   [](const drogon::nosql::RedisException&) {},
@@ -428,8 +427,7 @@ void start(const nlohmann::json& config) {
                     lastFlush = Clock::now();
                 }
                 bool windowElapsed =
-                    std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() -
-                                                                          lastFlush)
+                    std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - lastFlush)
                         .count() >= kFlushWindowMs;
                 if (!rows.empty() && (rows.size() >= kBatchRows || (windowElapsed && !got))) {
                     flushBatch(rows, dels);

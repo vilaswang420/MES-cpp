@@ -51,18 +51,19 @@ std::string genInspectionNo() {
 }
 
 nlohmann::json defectRow(const drogon::orm::Row& row) {
-    return {{"id", row["id"].as<int64_t>()},
-            {"inspection_id", row["inspection_id"].as<int64_t>()},
-            {"work_order_id", row["work_order_id"].isNull() ? 0 : row["work_order_id"].as<int64_t>()},
-            {"defect_code", row["defect_code"].as<std::string>()},
-            {"defect_name", row["defect_name"].as<std::string>()},
-            {"defect_category", optStr(row, "defect_category")},
-            {"quantity", row["quantity"].as<int>()},
-            {"severity", row["severity"].as<int>()},
-            {"disposition", row["disposition"].as<int>()},
-            {"root_cause", optStr(row, "root_cause")},
-            {"corrective_action", optStr(row, "corrective_action")},
-            {"created_at", optStr(row, "created_at")}};
+    return {
+        {"id", row["id"].as<int64_t>()},
+        {"inspection_id", row["inspection_id"].as<int64_t>()},
+        {"work_order_id", row["work_order_id"].isNull() ? 0 : row["work_order_id"].as<int64_t>()},
+        {"defect_code", row["defect_code"].as<std::string>()},
+        {"defect_name", row["defect_name"].as<std::string>()},
+        {"defect_category", optStr(row, "defect_category")},
+        {"quantity", row["quantity"].as<int>()},
+        {"severity", row["severity"].as<int>()},
+        {"disposition", row["disposition"].as<int>()},
+        {"root_cause", optStr(row, "root_cause")},
+        {"corrective_action", optStr(row, "corrective_action")},
+        {"created_at", optStr(row, "created_at")}};
 }
 
 } // namespace
@@ -101,16 +102,16 @@ void listStandards(int page, int pageSize, const std::string& keyword, int64_t p
                        onErr](const drogon::orm::Result& r) {
         nlohmann::json listArr = nlohmann::json::array();
         for (const auto& row : r) {
-            listArr.push_back({{"id", row["id"].as<int64_t>()},
-                               {"standard_code", row["standard_code"].as<std::string>()},
-                               {"standard_name", row["standard_name"].as<std::string>()},
-                               {"product_id",
-                                row["product_id"].isNull() ? 0 : row["product_id"].as<int64_t>()},
-                               {"product_name", optStr(row, "product_name")},
-                               {"inspection_type", row["inspection_type"].as<int>()},
-                               {"sample_size", row["sample_size"].as<int>()},
-                               {"aql_level", optStr(row, "aql_level")},
-                               {"items", parseJsonField(optStr(row, "items"))}});
+            listArr.push_back(
+                {{"id", row["id"].as<int64_t>()},
+                 {"standard_code", row["standard_code"].as<std::string>()},
+                 {"standard_name", row["standard_name"].as<std::string>()},
+                 {"product_id", row["product_id"].isNull() ? 0 : row["product_id"].as<int64_t>()},
+                 {"product_name", optStr(row, "product_name")},
+                 {"inspection_type", row["inspection_type"].as<int>()},
+                 {"sample_size", row["sample_size"].as<int>()},
+                 {"aql_level", optStr(row, "aql_level")},
+                 {"items", parseJsonField(optStr(row, "items"))}});
         }
         auto db2 = drogon::app().getDbClient();
         auto countOk = [listArr, page, pageSize, onOk](const drogon::orm::Result& cr) {
@@ -227,23 +228,22 @@ void listInspections(int page, int pageSize, int64_t workOrderId, int result, Js
         [page, pageSize, countSql, onOk, onErr](const drogon::orm::Result& r) {
             nlohmann::json listArr = nlohmann::json::array();
             for (const auto& row : r) {
-                listArr.push_back({{"id", row["id"].as<int64_t>()},
-                                   {"inspection_no", row["inspection_no"].as<std::string>()},
-                                   {"standard_id", row["standard_id"].isNull()
-                                                       ? 0
-                                                       : row["standard_id"].as<int64_t>()},
-                                   {"work_order_id", row["work_order_id"].isNull()
-                                                         ? 0
-                                                         : row["work_order_id"].as<int64_t>()},
-                                   {"work_order_no", optStr(row, "work_order_no")},
-                                   {"inspector_name", optStr(row, "inspector_name")},
-                                   {"inspection_type", row["inspection_type"].as<int>()},
-                                   {"sample_qty", row["sample_qty"].as<int>()},
-                                   {"pass_qty", row["pass_qty"].as<int>()},
-                                   {"defect_qty", row["defect_qty"].as<int>()},
-                                   {"result", row["result"].as<int>()},
-                                   {"remark", optStr(row, "remark")},
-                                   {"inspected_at", optStr(row, "inspected_at")}});
+                listArr.push_back(
+                    {{"id", row["id"].as<int64_t>()},
+                     {"inspection_no", row["inspection_no"].as<std::string>()},
+                     {"standard_id",
+                      row["standard_id"].isNull() ? 0 : row["standard_id"].as<int64_t>()},
+                     {"work_order_id",
+                      row["work_order_id"].isNull() ? 0 : row["work_order_id"].as<int64_t>()},
+                     {"work_order_no", optStr(row, "work_order_no")},
+                     {"inspector_name", optStr(row, "inspector_name")},
+                     {"inspection_type", row["inspection_type"].as<int>()},
+                     {"sample_qty", row["sample_qty"].as<int>()},
+                     {"pass_qty", row["pass_qty"].as<int>()},
+                     {"defect_qty", row["defect_qty"].as<int>()},
+                     {"result", row["result"].as<int>()},
+                     {"remark", optStr(row, "remark")},
+                     {"inspected_at", optStr(row, "inspected_at")}});
             }
             auto db2 = drogon::app().getDbClient();
             db2->execSqlAsync(
@@ -254,9 +254,7 @@ void listInspections(int page, int pageSize, int64_t workOrderId, int result, Js
                           {"page", page},
                           {"page_size", pageSize}});
                 },
-                [onErr](const drogon::orm::DrogonDbException& e) {
-                    onErr(500, e.base().what());
-                });
+                [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); });
         },
         [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); });
 }
@@ -281,7 +279,8 @@ void getInspection(int64_t id, JsonCb onOk, ErrCb onErr) {
             const auto& row = r[0];
             onOk({{"id", row["id"].as<int64_t>()},
                   {"inspection_no", row["inspection_no"].as<std::string>()},
-                  {"standard_id", row["standard_id"].isNull() ? 0 : row["standard_id"].as<int64_t>()},
+                  {"standard_id",
+                   row["standard_id"].isNull() ? 0 : row["standard_id"].as<int64_t>()},
                   {"work_order_id",
                    row["work_order_id"].isNull() ? 0 : row["work_order_id"].as<int64_t>()},
                   {"product_id", row["product_id"].isNull() ? 0 : row["product_id"].as<int64_t>()},
@@ -394,13 +393,13 @@ void statistics(const std::string& startDate, const std::string& endDate, JsonCb
         [startDate, endDate, onOk, onErr](const drogon::orm::Result& r) {
             auto total = r[0]["total"].as<int64_t>();
             auto passCnt = r[0]["pass_cnt"].as<int64_t>();
-            nlohmann::json summary = {{"total", total},
-                                      {"pass_cnt", passCnt},
-                                      {"fail_cnt", r[0]["fail_cnt"].as<int64_t>()},
-                                      {"concession_cnt", r[0]["concession_cnt"].as<int64_t>()},
-                                      {"defect_total", r[0]["defect_total"].as<int64_t>()},
-                                      {"first_pass_rate",
-                                       total > 0 ? passCnt * 100.0 / total : 0.0}};
+            nlohmann::json summary = {
+                {"total", total},
+                {"pass_cnt", passCnt},
+                {"fail_cnt", r[0]["fail_cnt"].as<int64_t>()},
+                {"concession_cnt", r[0]["concession_cnt"].as<int64_t>()},
+                {"defect_total", r[0]["defect_total"].as<int64_t>()},
+                {"first_pass_rate", total > 0 ? passCnt * 100.0 / total : 0.0}};
             // 第 2 步: 缺陷类别分布
             auto db2 = drogon::app().getDbClient();
             db2->execSqlAsync(
@@ -445,9 +444,7 @@ void statistics(const std::string& startDate, const std::string& endDate, JsonCb
                         },
                         startDate, endDate);
                 },
-                [onErr](const drogon::orm::DrogonDbException& e) {
-                    onErr(500, e.base().what());
-                },
+                [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); },
                 startDate, endDate);
         },
         [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); },

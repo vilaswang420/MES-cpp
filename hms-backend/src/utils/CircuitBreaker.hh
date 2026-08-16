@@ -20,16 +20,16 @@ class CircuitBreaker {
     bool allowRequest() {
         std::lock_guard<std::mutex> lk(mu_);
         switch (state_) {
-            case State::CLOSED:
+        case State::CLOSED:
+            return true;
+        case State::OPEN:
+            if (std::chrono::steady_clock::now() - openedAt_ >= openWindow_) {
+                state_ = State::HALF_OPEN;
                 return true;
-            case State::OPEN:
-                if (std::chrono::steady_clock::now() - openedAt_ >= openWindow_) {
-                    state_ = State::HALF_OPEN;
-                    return true;
-                }
-                return false;
-            case State::HALF_OPEN:
-                return true;
+            }
+            return false;
+        case State::HALF_OPEN:
+            return true;
         }
         return false;
     }
@@ -59,12 +59,12 @@ class CircuitBreaker {
 
     const char* stateName() {
         switch (state()) {
-            case State::CLOSED:
-                return "CLOSED";
-            case State::OPEN:
-                return "OPEN";
-            default:
-                return "HALF_OPEN";
+        case State::CLOSED:
+            return "CLOSED";
+        case State::OPEN:
+            return "OPEN";
+        default:
+            return "HALF_OPEN";
         }
     }
 

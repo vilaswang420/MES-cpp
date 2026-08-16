@@ -30,4 +30,4 @@ inline int64_t nowEpochSeconds() {
         .count();
 }
 
-}  // namespace hms::TimeUtils
+} // namespace hms::TimeUtils

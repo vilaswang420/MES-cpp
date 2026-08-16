@@ -111,14 +111,12 @@ class IotController : public drogon::HttpController<IotController> {
     }
 
     void sensorHistory(const drogon::HttpRequestPtr& req,
-                       std::function<void(const drogon::HttpResponsePtr&)>&& callback,
-                       int64_t id) {
+                       std::function<void(const drogon::HttpResponsePtr&)>&& callback, int64_t id) {
         auto traceId = traceIdOf(req);
-        IotService::sensorHistory(id, paramStr(req, "start_time"), paramStr(req, "end_time"),
-                                  paramStr(req, "interval").empty() ? "5m"
-                                                                    : paramStr(req, "interval"),
-                                  paramStr(req, "agg"), notNullCb(callback, traceId),
-                                  errCb(callback, traceId));
+        IotService::sensorHistory(
+            id, paramStr(req, "start_time"), paramStr(req, "end_time"),
+            paramStr(req, "interval").empty() ? "5m" : paramStr(req, "interval"),
+            paramStr(req, "agg"), notNullCb(callback, traceId), errCb(callback, traceId));
     }
 
     void listAlerts(const drogon::HttpRequestPtr& req,

@@ -41,8 +41,7 @@ std::mutex g_flightMtx;
 std::unordered_map<int64_t, std::vector<std::pair<PermCallback, ErrCallback>>>* g_inflight =
     nullptr;
 
-void forwardResult(int64_t userId, const std::set<std::string>* perms,
-                   const std::exception* err) {
+void forwardResult(int64_t userId, const std::set<std::string>* perms, const std::exception* err) {
     std::vector<std::pair<PermCallback, ErrCallback>> waiters;
     {
         std::lock_guard lk(g_flightMtx);
@@ -116,8 +115,8 @@ void loadFromDb(int64_t userId, PermCallback onOk, ErrCallback onErr) {
     {
         std::lock_guard lk(g_flightMtx);
         if (!g_inflight)
-            g_inflight = new std::unordered_map<
-                int64_t, std::vector<std::pair<PermCallback, ErrCallback>>>;
+            g_inflight =
+                new std::unordered_map<int64_t, std::vector<std::pair<PermCallback, ErrCallback>>>;
         auto& slot = (*g_inflight)[userId];
         leader = slot.empty();
         slot.emplace_back(std::move(onOk), std::move(onErr));
@@ -215,9 +214,9 @@ void loadMergedScopeAsync(int64_t userId, std::function<void(const ScopeResult&)
                             res.customDeptIds.push_back(row["dept_id"].as<int64_t>());
                         {
                             std::lock_guard lk(g_scopeMtx);
-                            g_scopeCache[userId] = {
-                                res, std::chrono::steady_clock::now() +
-                                         std::chrono::seconds(kScopeCacheTtlSec)};
+                            g_scopeCache[userId] = {res,
+                                                    std::chrono::steady_clock::now() +
+                                                        std::chrono::seconds(kScopeCacheTtlSec)};
                         }
                         onOk(res);
                     },

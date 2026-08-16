@@ -45,8 +45,8 @@ void verifyCachePut(const std::string& key) {
     std::lock_guard lk(g_verifyMtx);
     if (g_verifyCache.size() >= kVerifyCacheMax)
         g_verifyCache.clear(); // 粗粒度满则清, 避免内存无界增长
-    g_verifyCache[key] = {
-        std::chrono::steady_clock::now() + std::chrono::seconds(kVerifyCacheTtlSec)};
+    g_verifyCache[key] = {std::chrono::steady_clock::now() +
+                          std::chrono::seconds(kVerifyCacheTtlSec)};
 }
 
 std::string randomCode(size_t len) {
@@ -212,7 +212,8 @@ void login(const nlohmann::json& body, const std::string& clientIp, JsonCb onOk,
                     handleVerified(userId, row, clientIp, ok, std::move(onOk), std::move(onErr));
                 });
         },
-        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); }, username);
+        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); },
+        username);
 }
 
 void refresh(const nlohmann::json& body, JsonCb onOk, ErrCb onErr) {
@@ -290,7 +291,8 @@ void profile(int64_t userId, JsonCb onOk, ErrCb onErr) {
                 },
                 [data, onOk](const std::exception&) mutable { onOk(data); });
         },
-        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); }, SqlArg(userId));
+        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); },
+        SqlArg(userId));
 }
 
 void changePassword(int64_t userId, const nlohmann::json& body, JsonCb onOk, ErrCb onErr) {
@@ -310,8 +312,8 @@ void changePassword(int64_t userId, const nlohmann::json& body, JsonCb onOk, Err
             offloadCpu(
                 [oldPwd, newPwd, hash] {
                     bool ok = CryptoUtils::verifyPassword(oldPwd, hash);
-                    return std::pair<bool, std::string>{
-                        ok, ok ? CryptoUtils::hashPassword(newPwd) : std::string{}};
+                    return std::pair<bool, std::string>{ok, ok ? CryptoUtils::hashPassword(newPwd)
+                                                               : std::string{}};
                 },
                 [userId, onOk, onErr](std::pair<bool, std::string> res) {
                     if (!res.first)
@@ -320,8 +322,12 @@ void changePassword(int64_t userId, const nlohmann::json& body, JsonCb onOk, Err
                     db2->execSqlAsync(
                         "UPDATE sys_users SET password_hash = $2, password_changed_at = NOW() "
                         "WHERE id = $1",
-                        [onOk](const drogon::orm::Result&) { onOk(nlohmann::json{{"changed", true}}); },
-                        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); },
+                        [onOk](const drogon::orm::Result&) {
+                            onOk(nlohmann::json{{"changed", true}});
+                        },
+                        [onErr](const drogon::orm::DrogonDbException& e) {
+                            onErr(500, e.base().what());
+                        },
                         SqlArg(userId), res.second);
                 });
         },

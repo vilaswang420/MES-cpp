@@ -57,16 +57,16 @@ drogon::Task<> tick() {
         auto trans = co_await db->newTransactionCoro();
 
         auto lock = co_await trans->execSqlCoro("SELECT pg_try_advisory_xact_lock($1)",
-                                                  SqlArg(kAdvisoryLockKey));
+                                                SqlArg(kAdvisoryLockKey));
         if (!lock[0][0].as<bool>())
             co_return; // 其他实例正在投递
 
         // 待投递 + 未超重试上限的失败件
         auto rows =
             co_await trans->execSqlCoro("SELECT id, exchange, routing_key, payload FROM mq_outbox "
-                                       "WHERE status = 0 OR (status = 2 AND retry_count < $1) "
-                                       "ORDER BY created_at LIMIT $2 FOR UPDATE SKIP LOCKED",
-                                       SqlArg(kMaxRetry), SqlArg(kBatchSize));
+                                        "WHERE status = 0 OR (status = 2 AND retry_count < $1) "
+                                        "ORDER BY created_at LIMIT $2 FOR UPDATE SKIP LOCKED",
+                                        SqlArg(kMaxRetry), SqlArg(kBatchSize));
 
         for (const auto& row : rows) {
             auto id = row["id"].as<int64_t>();

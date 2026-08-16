@@ -97,8 +97,7 @@ inline std::string render() {
         out << "# TYPE " << name << " histogram\n";
         // observe 时每次观测对所有满足 value<=边界 的桶 +1, 桶值即累计数
         for (size_t i = 0; i < detail::kBuckets.size(); ++i) {
-            out << name << "_bucket{le=\"" << detail::kBuckets[i] << "\"} " << h.buckets[i]
-                << '\n';
+            out << name << "_bucket{le=\"" << detail::kBuckets[i] << "\"} " << h.buckets[i] << '\n';
         }
         out << name << "_bucket{le=\"+Inf\"} " << h.count << '\n';
         out << name << "_sum " << h.sum << '\n';

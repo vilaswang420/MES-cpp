@@ -54,15 +54,13 @@ inline void submitCpuJob(std::function<void()> job) {
 } // namespace detail
 
 // fn() 在工作线程执行, cb(result) 回到当前事件循环执行
-template <typename Fn, typename Cb>
-void offloadCpu(Fn fn, Cb cb) {
+template <typename Fn, typename Cb> void offloadCpu(Fn fn, Cb cb) {
     auto loop = drogon::app().getLoop();
     auto sharedFn = std::make_shared<Fn>(std::move(fn));
     detail::submitCpuJob([sharedFn, cb = std::move(cb), loop]() mutable {
         auto result = (*sharedFn)();
-        loop->queueInLoop([cb = std::move(cb), result = std::move(result)]() mutable {
-            cb(std::move(result));
-        });
+        loop->queueInLoop(
+            [cb = std::move(cb), result = std::move(result)]() mutable { cb(std::move(result)); });
     });
 }
 

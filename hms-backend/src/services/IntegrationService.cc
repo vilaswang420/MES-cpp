@@ -1,7 +1,7 @@
 #include "services/IntegrationService.hh"
 
-#include <drogon/HttpClient.h>
 #include <drogon/HttpAppFramework.h>
+#include <drogon/HttpClient.h>
 #include <drogon/utils/coroutine.h>
 
 #include <cctype>
@@ -140,10 +140,9 @@ drogon::Task<ExtResult> callExternal(const ApiConfig& cfg, const std::string& sy
             if (!cfg.token.empty())
                 req->addHeader("Authorization", std::string("Bearer ") + cfg.token);
             auto resp = co_await client->sendRequestCoro(req, cfg.timeoutMs / 1000.0);
-            res.durationMs =
-                std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::steady_clock::now() - t0)
-                    .count();
+            res.durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::steady_clock::now() - t0)
+                                 .count();
             res.httpStatus = static_cast<int>(resp->getStatusCode());
             try {
                 res.body = nlohmann::json::parse(resp->getBody());
@@ -157,10 +156,9 @@ drogon::Task<ExtResult> callExternal(const ApiConfig& cfg, const std::string& sy
             }
             res.err = std::string("HTTP ") + std::to_string(res.httpStatus);
         } catch (const std::exception& e) {
-            res.durationMs =
-                std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::steady_clock::now() - t0)
-                    .count();
+            res.durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::steady_clock::now() - t0)
+                                 .count();
             res.err = e.what();
         }
         breaker.recordFailure();
@@ -172,12 +170,11 @@ drogon::Task<ExtResult> callExternal(const ApiConfig& cfg, const std::string& sy
 
 // 外呼失败统一处理: 记失败日志 + 抛 502
 drogon::Task<> failExternal(const std::string& systemType, int direction,
-                            const std::string& syncType, int64_t businessId,
-                            const std::string& url, const std::string& reqBody,
-                            const ExtResult& r) {
+                            const std::string& syncType, int64_t businessId, const std::string& url,
+                            const std::string& reqBody, const ExtResult& r) {
     co_await writeLog(systemType, direction, syncType, businessId, url, reqBody,
-                      r.body.is_null() ? std::string() : r.body.dump(), r.httpStatus,
-                      r.durationMs, false, 0, r.err);
+                      r.body.is_null() ? std::string() : r.body.dump(), r.httpStatus, r.durationMs,
+                      false, 0, r.err);
     throw ApiException(502, systemType + " 调用失败: " + r.err);
 }
 
@@ -245,7 +242,8 @@ drogon::Task<nlohmann::json> convertErpOrder(int64_t orderId,
     auto db = drogon::app().getDbClient();
     auto rows = co_await db->execSqlCoro(
         "SELECT id, erp_order_no, product_code, quantity, priority, status FROM "
-        "integ_erp_orders WHERE id = $1", SqlArg(orderId));
+        "integ_erp_orders WHERE id = $1",
+        SqlArg(orderId));
     if (rows.empty())
         throw NotFound("ERP 订单不存在");
     if (rows[0]["status"].as<int>() != 0)
@@ -260,11 +258,12 @@ drogon::Task<nlohmann::json> convertErpOrder(int64_t orderId,
     if (pr[0]["process_id"].isNull())
         throw BadRequest(std::string("产品 ") + productCode + " 未绑定工艺路线");
 
-    nlohmann::json woBody = {{"product_id", pr[0]["id"].as<int64_t>()},
-                             {"process_id", pr[0]["process_id"].as<int64_t>()},
-                             {"plan_qty", rows[0]["quantity"].as<int>()},
-                             {"priority", rows[0]["priority"].as<int>()},
-                             {"remark", std::string("ERP 订单 ") + rows[0]["erp_order_no"].as<std::string>()}};
+    nlohmann::json woBody = {
+        {"product_id", pr[0]["id"].as<int64_t>()},
+        {"process_id", pr[0]["process_id"].as<int64_t>()},
+        {"plan_qty", rows[0]["quantity"].as<int>()},
+        {"priority", rows[0]["priority"].as<int>()},
+        {"remark", std::string("ERP 订单 ") + rows[0]["erp_order_no"].as<std::string>()}};
     auto wo = co_await WorkOrderService::create(woBody, ctx);
 
     co_await db->execSqlCoro("UPDATE integ_erp_orders SET status = 1, work_order_id = $1, "
@@ -312,16 +311,15 @@ drogon::Task<nlohmann::json> reportCompletionSaga(int64_t workOrderId) {
     msg["work_order_no"] = woNo;
     msg["product_id"] = rows[0]["product_id"].isNull() ? 0 : rows[0]["product_id"].as<int64_t>();
     msg["timestamp"] = TimeUtils::nowUtcIso();
-    co_await trans->execSqlCoro(OutboxService::kEnqueueSql, "iot.exchange",
-                                "cmd.stop_collection", msg.dump());
+    co_await trans->execSqlCoro(OutboxService::kEnqueueSql, "iot.exchange", "cmd.stop_collection",
+                                msg.dump());
     co_await commitAwait(std::move(trans));
 
     auto rollbackT1 = [&]() -> drogon::Task<> {
         try {
             co_await drogon::app().getDbClient()->execSqlCoro(
                 "UPDATE prod_work_orders SET status = $1, updated_at = NOW() WHERE id = $2",
-                SqlArg(static_cast<int>(WorkOrderStateMachine::kInProgress)),
-                SqlArg(workOrderId));
+                SqlArg(static_cast<int>(WorkOrderStateMachine::kInProgress)), SqlArg(workOrderId));
         } catch (const std::exception& e) {
             LOG_ERROR << "[integ] saga T1 补偿失败, 需人工介入 wo=" << workOrderId << ": "
                       << e.what();
@@ -336,8 +334,7 @@ drogon::Task<nlohmann::json> reportCompletionSaga(int64_t workOrderId) {
     if (!t2.ok) {
         co_await rollbackT1();
         co_await failExternal("ERP", 2, "completion_report", workOrderId,
-                              std::string("POST ") + erpPath,
-                              erpPayload.dump(), t2);
+                              std::string("POST ") + erpPath, erpPayload.dump(), t2);
     }
 
     // T3: WMS 成品入库 (补偿: 入库撤销)
@@ -351,10 +348,9 @@ drogon::Task<nlohmann::json> reportCompletionSaga(int64_t workOrderId) {
     auto t3 = co_await callExternal(wmsCfg, "WMS", "POST", wmsPath, wmsPayload);
     if (!t3.ok) {
         // 逆序补偿: T2 -> T1
-        auto cancel = co_await callExternal(erpCfg, "ERP", "POST",
-                                            std::string("/erp/work-orders/") + woNo +
-                                                "/report-cancel",
-                                            nlohmann::json{{"work_order_no", woNo}});
+        auto cancel = co_await callExternal(
+            erpCfg, "ERP", "POST", std::string("/erp/work-orders/") + woNo + "/report-cancel",
+            nlohmann::json{{"work_order_no", woNo}});
         if (!cancel.ok)
             LOG_ERROR << "[integ] saga T2 补偿失败, 需人工介入 wo=" << workOrderId << ": "
                       << cancel.err;
@@ -369,11 +365,10 @@ drogon::Task<nlohmann::json> reportCompletionSaga(int64_t workOrderId) {
         "work_order_id, raw_data, synced_at) VALUES ($1,$2,'INBOUND',2,$3,$4,NOW())",
         productCode, SqlArg(completedQty), SqlArg(workOrderId), t3.body.dump());
     auto logId = co_await writeLog("ERP", 2, "completion_report", workOrderId,
-                                   std::string("POST ") + erpPath, erpPayload.dump(), t2.body.dump(),
-                                   t2.httpStatus, t2.durationMs, true, 0, "");
+                                   std::string("POST ") + erpPath, erpPayload.dump(),
+                                   t2.body.dump(), t2.httpStatus, t2.durationMs, true, 0, "");
     co_await writeLog("WMS", 2, "stock_in", workOrderId, std::string("POST ") + wmsPath,
-                      wmsPayload.dump(),
-                      t3.body.dump(), t3.httpStatus, t3.durationMs, true, 0, "");
+                      wmsPayload.dump(), t3.body.dump(), t3.httpStatus, t3.durationMs, true, 0, "");
 
     co_return nlohmann::json{{"saga", "completed"},
                              {"work_order_id", workOrderId},
@@ -410,9 +405,9 @@ drogon::Task<nlohmann::json> wmsCall(const nlohmann::json& body, const std::stri
         body.value("warehouse", std::string()), SqlArg(quantity),
         body.value("unit", std::string("PCS")), syncType == 1 ? "ISSUED" : "INBOUND",
         SqlArg(syncType), SqlArg(workOrderId), r.body.dump());
-    auto logId = co_await writeLog("WMS", 2, action, workOrderId, std::string("POST ") + path,
-                                   payload.dump(), r.body.dump(), r.httpStatus, r.durationMs,
-                                   true, 0, "");
+    auto logId =
+        co_await writeLog("WMS", 2, action, workOrderId, std::string("POST ") + path,
+                          payload.dump(), r.body.dump(), r.httpStatus, r.durationMs, true, 0, "");
     co_return nlohmann::json{{"sync_log_id", logId}, {"inventory_id", inv[0]["id"].as<int64_t>()}};
 }
 
@@ -428,18 +423,20 @@ drogon::Task<nlohmann::json> wmsStockIn(const nlohmann::json& body) {
 nlohmann::json logArr(const drogon::orm::Result& rows) {
     auto arr = nlohmann::json::array();
     for (const auto& row : rows) {
-        arr.push_back({{"id", row["id"].as<int64_t>()},
-                       {"system_type", row["system_type"].as<std::string>()},
-                       {"sync_direction", row["sync_direction"].as<int>()},
-                       {"sync_type", row["sync_type"].as<std::string>()},
-                       {"business_id", row["business_id"].isNull() ? 0 : row["business_id"].as<int64_t>()},
-                       {"request_url", row["request_url"].as<std::string>()},
-                       {"http_status", row["http_status"].isNull() ? 0 : row["http_status"].as<int>()},
-                       {"duration_ms", row["duration_ms"].isNull() ? 0 : row["duration_ms"].as<int>()},
-                       {"status", row["status"].as<int>()},
-                       {"retry_count", row["retry_count"].as<int>()},
-                       {"error_msg", row["error_msg"].isNull() ? std::string() : row["error_msg"].as<std::string>()},
-                       {"created_at", row["created_at"].as<std::string>()}});
+        arr.push_back(
+            {{"id", row["id"].as<int64_t>()},
+             {"system_type", row["system_type"].as<std::string>()},
+             {"sync_direction", row["sync_direction"].as<int>()},
+             {"sync_type", row["sync_type"].as<std::string>()},
+             {"business_id", row["business_id"].isNull() ? 0 : row["business_id"].as<int64_t>()},
+             {"request_url", row["request_url"].as<std::string>()},
+             {"http_status", row["http_status"].isNull() ? 0 : row["http_status"].as<int>()},
+             {"duration_ms", row["duration_ms"].isNull() ? 0 : row["duration_ms"].as<int>()},
+             {"status", row["status"].as<int>()},
+             {"retry_count", row["retry_count"].as<int>()},
+             {"error_msg",
+              row["error_msg"].isNull() ? std::string() : row["error_msg"].as<std::string>()},
+             {"created_at", row["created_at"].as<std::string>()}});
     }
     return arr;
 }
@@ -455,8 +452,7 @@ drogon::Task<nlohmann::json> listLogs(int page, int pageSize, const std::string&
     auto offset = (int64_t)(page - 1) * pageSize;
     // NULL 哨兵动态过滤: 固定 SQL 零拼接, systemType/status 任意组合均生效
     // (历史实现两个独立 if 分支, systemType=ERP 时 status 过滤被跳过)
-    auto typeArg = (systemType == "ERP" || systemType == "WMS") ? SqlArg(systemType)
-                                                                : SqlArgNull();
+    auto typeArg = (systemType == "ERP" || systemType == "WMS") ? SqlArg(systemType) : SqlArgNull();
     auto statusArg = (status >= 0 && status <= 2) ? SqlArg(status) : SqlArgNull();
     auto cntRow = co_await db->execSqlCoro(
         "SELECT COUNT(*) AS cnt FROM integ_sync_logs "
@@ -502,8 +498,7 @@ drogon::Task<nlohmann::json> retryLog(int64_t logId) {
         payload = nullptr;
     }
 
-    co_await db->execSqlCoro("UPDATE integ_sync_logs SET status = 2 WHERE id = $1",
-                             SqlArg(logId));
+    co_await db->execSqlCoro("UPDATE integ_sync_logs SET status = 2 WHERE id = $1", SqlArg(logId));
     auto r = co_await callExternal(cfg, systemType, method, path, payload);
     co_await db->execSqlCoro(
         "UPDATE integ_sync_logs SET status = $1, http_status = $2, duration_ms = $3, "

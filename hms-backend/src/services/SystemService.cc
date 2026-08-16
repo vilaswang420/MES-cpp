@@ -99,7 +99,9 @@ void listUsers(int page, int pageSize, const std::string& keyword, int status, J
                   {"page", page},
                   {"page_size", pageSize}});
         };
-        auto countErr = [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); };
+        auto countErr = [onErr](const drogon::orm::DrogonDbException& e) {
+            onErr(500, e.base().what());
+        };
         if (hasKw)
             db2->execSqlAsync(countSql, countOk, countErr, "%" + keyword + "%");
         else
@@ -153,7 +155,8 @@ void getUser(int64_t id, JsonCb onOk, ErrCb onErr) {
                 },
                 [data, onOk](const drogon::orm::DrogonDbException&) { onOk(data); }, SqlArg(id));
         },
-        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); }, SqlArg(id));
+        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); },
+        SqlArg(id));
 }
 
 void createUser(const nlohmann::json& body, JsonCb onOk, ErrCb onErr) {
@@ -163,38 +166,42 @@ void createUser(const nlohmann::json& body, JsonCb onOk, ErrCb onErr) {
         return onErr(400, "username 与 real_name 必填");
     auto password = body.value("password", std::string(kDefaultPassword));
     // bcrypt 为 CPU 密集计算, 卸载到工作线程后再发起入库
-    offloadCpu([password] { return CryptoUtils::hashPassword(password); },
-               [body, username, realName, onOk, onErr](std::string hash) mutable {
-        auto db = drogon::app().getDbClient();
-        db->execSqlAsync(
-            "INSERT INTO sys_users (dept_id, username, password_hash, real_name, employee_no, "
-            "email, phone, gender, status) VALUES (NULLIF($1::bigint,0),$2,$3,$4,$5,$6,$7,$8::int,1) "
-            "RETURNING id",
-            [body, onOk, onErr](const drogon::orm::Result& r) {
-                auto id = r[0]["id"].as<int64_t>();
-                // 可选角色分配
-                if (body.contains("role_ids") && body["role_ids"].is_array() &&
-                    !body["role_ids"].empty()) {
-                    assignRoles(
-                        id, body["role_ids"].get<std::vector<int64_t>>(),
-                        [id, onOk](const nlohmann::json&) { onOk({{"id", id}, {"created", true}}); },
-                        onErr);
-                    return;
-                }
-                onOk({{"id", id}, {"created", true}});
-            },
-            [onErr](const drogon::orm::DrogonDbException& e) {
-                auto msg = std::string(e.base().what());
-                if (msg.find("unique") != std::string::npos ||
-                    msg.find("duplicate") != std::string::npos)
-                    onErr(409, "用户名或工号已存在");
-                else
-                    onErr(500, msg);
-            },
-            SqlArg(body.value("dept_id", (int64_t)0)), username, hash, realName,
-            body.value("employee_no", ""), body.value("email", ""), body.value("phone", ""),
-            SqlArg(body.value("gender", 0)));
-    });
+    offloadCpu(
+        [password] { return CryptoUtils::hashPassword(password); },
+        [body, username, realName, onOk, onErr](std::string hash) mutable {
+            auto db = drogon::app().getDbClient();
+            db->execSqlAsync(
+                "INSERT INTO sys_users (dept_id, username, password_hash, real_name, employee_no, "
+                "email, phone, gender, status) VALUES "
+                "(NULLIF($1::bigint,0),$2,$3,$4,$5,$6,$7,$8::int,1) "
+                "RETURNING id",
+                [body, onOk, onErr](const drogon::orm::Result& r) {
+                    auto id = r[0]["id"].as<int64_t>();
+                    // 可选角色分配
+                    if (body.contains("role_ids") && body["role_ids"].is_array() &&
+                        !body["role_ids"].empty()) {
+                        assignRoles(
+                            id, body["role_ids"].get<std::vector<int64_t>>(),
+                            [id, onOk](const nlohmann::json&) {
+                                onOk({{"id", id}, {"created", true}});
+                            },
+                            onErr);
+                        return;
+                    }
+                    onOk({{"id", id}, {"created", true}});
+                },
+                [onErr](const drogon::orm::DrogonDbException& e) {
+                    auto msg = std::string(e.base().what());
+                    if (msg.find("unique") != std::string::npos ||
+                        msg.find("duplicate") != std::string::npos)
+                        onErr(409, "用户名或工号已存在");
+                    else
+                        onErr(500, msg);
+                },
+                SqlArg(body.value("dept_id", (int64_t)0)), username, hash, realName,
+                body.value("employee_no", ""), body.value("email", ""), body.value("phone", ""),
+                SqlArg(body.value("gender", 0)));
+        });
 }
 
 void updateUser(int64_t id, const nlohmann::json& body, JsonCb onOk, ErrCb onErr) {
@@ -233,8 +240,8 @@ void updateUser(int64_t id, const nlohmann::json& body, JsonCb onOk, ErrCb onErr
         if (col == "dept_id")
             trans->execSqlAsync(
                 sql, [](const drogon::orm::Result&) {},
-                [](const drogon::orm::DrogonDbException&) {}, SqlArg(body["dept_id"].get<int64_t>()),
-                SqlArg(id));
+                [](const drogon::orm::DrogonDbException&) {},
+                SqlArg(body["dept_id"].get<int64_t>()), SqlArg(id));
         else if (col == "gender")
             trans->execSqlAsync(
                 sql, [](const drogon::orm::Result&) {},
@@ -261,7 +268,8 @@ void deleteUser(int64_t id, JsonCb onOk, ErrCb onErr) {
             RbacService::invalidateUserPerm(id);
             onOk({{"id", id}, {"deleted", true}});
         },
-        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); }, SqlArg(id));
+        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); },
+        SqlArg(id));
 }
 
 void resetPassword(int64_t id, const nlohmann::json& body, JsonCb onOk, ErrCb onErr) {
@@ -269,23 +277,24 @@ void resetPassword(int64_t id, const nlohmann::json& body, JsonCb onOk, ErrCb on
     if (newPwd.size() < 8)
         return onErr(400, "密码长度至少 8 位");
     // bcrypt 为 CPU 密集计算, 卸载到工作线程后再发起更新
-    offloadCpu([newPwd] { return CryptoUtils::hashPassword(newPwd); },
-               [id, onOk, onErr](std::string hash) mutable {
-        auto db = drogon::app().getDbClient();
-        db->execSqlAsync(
-            "UPDATE sys_users SET password_hash = $1, login_fail_count = 0, "
-            "status = CASE WHEN status = 2 THEN 1 ELSE status END, updated_at = NOW() "
-            "WHERE id = $2 AND deleted = FALSE",
-            [id, onOk](const drogon::orm::Result& r) {
-                if (r.affectedRows() == 0) {
-                    onOk(nullptr);
-                    return;
-                }
-                onOk({{"id", id}, {"reset", true}});
-            },
-            [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); },
-            hash, SqlArg(id));
-    });
+    offloadCpu(
+        [newPwd] { return CryptoUtils::hashPassword(newPwd); },
+        [id, onOk, onErr](std::string hash) mutable {
+            auto db = drogon::app().getDbClient();
+            db->execSqlAsync(
+                "UPDATE sys_users SET password_hash = $1, login_fail_count = 0, "
+                "status = CASE WHEN status = 2 THEN 1 ELSE status END, updated_at = NOW() "
+                "WHERE id = $2 AND deleted = FALSE",
+                [id, onOk](const drogon::orm::Result& r) {
+                    if (r.affectedRows() == 0) {
+                        onOk(nullptr);
+                        return;
+                    }
+                    onOk({{"id", id}, {"reset", true}});
+                },
+                [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); },
+                hash, SqlArg(id));
+        });
 }
 
 void setUserStatus(int64_t id, int status, JsonCb onOk, ErrCb onErr) {
@@ -329,7 +338,8 @@ void assignRoles(int64_t userId, const std::vector<int64_t>& roleIds, JsonCb onO
             });
             // 回调结束后捕获释放 -> 析构排队 COMMIT (在 INSERT 之后)
         },
-        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); }, SqlArg(userId));
+        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); },
+        SqlArg(userId));
 }
 
 // ============ 角色 ============
@@ -389,7 +399,8 @@ void getRole(int64_t id, JsonCb onOk, ErrCb onErr) {
                 },
                 [data, onOk](const drogon::orm::DrogonDbException&) { onOk(data); }, SqlArg(id));
         },
-        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); }, SqlArg(id));
+        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); },
+        SqlArg(id));
 }
 
 void createRole(const nlohmann::json& body, JsonCb onOk, ErrCb onErr) {
@@ -464,7 +475,8 @@ void deleteRole(int64_t id, JsonCb onOk, ErrCb onErr) {
             invalidateRoleUsers(id);
             onOk({{"id", id}, {"deleted", true}});
         },
-        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); }, SqlArg(id));
+        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); },
+        SqlArg(id));
 }
 
 void assignPermissions(int64_t roleId, const std::vector<int64_t>& permIds, JsonCb onOk,
@@ -490,7 +502,8 @@ void assignPermissions(int64_t roleId, const std::vector<int64_t>& permIds, Json
                 onOk({{"role_id", roleId}, {"assigned", permIds.size()}});
             });
         },
-        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); }, SqlArg(roleId));
+        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); },
+        SqlArg(roleId));
 }
 
 void updateDataScope(int64_t roleId, int dataScope, const std::vector<int64_t>& deptIds,
@@ -618,7 +631,8 @@ void createDept(const nlohmann::json& body, JsonCb onOk, ErrCb onErr) {
     auto db = drogon::app().getDbClient();
     db->execSqlAsync(
         "INSERT INTO sys_departments (parent_id, dept_code, dept_name, sort_order, leader_id, "
-        "phone, status) VALUES (NULLIF($1::bigint,0),$2,$3,$4::int,NULLIF($5::bigint,0),$6,1) RETURNING id",
+        "phone, status) VALUES (NULLIF($1::bigint,0),$2,$3,$4::int,NULLIF($5::bigint,0),$6,1) "
+        "RETURNING id",
         [onOk](const drogon::orm::Result& r) {
             onOk({{"id", r[0]["id"].as<int64_t>()}, {"created", true}});
         },
@@ -696,7 +710,8 @@ void deleteDept(int64_t id, JsonCb onOk, ErrCb onErr) {
                 },
                 [](const drogon::orm::DrogonDbException&) {}, SqlArg(id));
         },
-        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); }, SqlArg(id));
+        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); },
+        SqlArg(id));
 }
 
 // ============ 审计与配置 ============
@@ -708,14 +723,13 @@ void listAuditLogs(int page, int pageSize, const AuditLogFilter& f, JsonCb onOk,
         pageSize = 20;
     // 全部条件参数化 (NULL 哨兵), 数值/时间/字符串一律占位符绑定, 杜绝 SQL 拼接注入;
     // created_at 上的时间范围条件由 PG 按月分区自动裁剪 (sys_audit_logs 分区表)
-    static const std::string kWhere =
-        " WHERE ($1::bigint IS NULL OR user_id = $1)"
-        " AND ($2::text IS NULL OR module = $2)"
-        " AND ($3::text IS NULL OR operation ILIKE '%' || $3 || '%')"
-        " AND ($4::int IS NULL OR response_code = $4)"
-        " AND ($5::text IS NULL OR ip_address ILIKE '%' || $5 || '%')"
-        " AND ($6::timestamptz IS NULL OR created_at >= $6)"
-        " AND ($7::timestamptz IS NULL OR created_at <= $7)";
+    static const std::string kWhere = " WHERE ($1::bigint IS NULL OR user_id = $1)"
+                                      " AND ($2::text IS NULL OR module = $2)"
+                                      " AND ($3::text IS NULL OR operation ILIKE '%' || $3 || '%')"
+                                      " AND ($4::int IS NULL OR response_code = $4)"
+                                      " AND ($5::text IS NULL OR ip_address ILIKE '%' || $5 || '%')"
+                                      " AND ($6::timestamptz IS NULL OR created_at >= $6)"
+                                      " AND ($7::timestamptz IS NULL OR created_at <= $7)";
     std::string sql =
         "SELECT id, user_id, username, module, operation, method, request_url, response_code, "
         "ip_address, duration_ms, created_at FROM sys_audit_logs" +
@@ -733,8 +747,7 @@ void listAuditLogs(int page, int pageSize, const AuditLogFilter& f, JsonCb onOk,
 
     auto db = drogon::app().getDbClient();
     auto handler = [page, pageSize, countSql, onOk, onErr, argUserId, argModule, argOperation,
-                    argCode, argIp, argStart,
-                    argEnd](const drogon::orm::Result& r) {
+                    argCode, argIp, argStart, argEnd](const drogon::orm::Result& r) {
         auto listArr = nlohmann::json::array();
         for (const auto& row : r)
             listArr.push_back({
@@ -769,7 +782,9 @@ void listAuditLogs(int page, int pageSize, const AuditLogFilter& f, JsonCb onOk,
         db2->execSqlAsync(countSql, countOk, countErr, argUserId, argModule, argOperation, argCode,
                           argIp, argStart, argEnd);
     };
-    auto errHandler = [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); };
+    auto errHandler = [onErr](const drogon::orm::DrogonDbException& e) {
+        onErr(500, e.base().what());
+    };
     db->execSqlAsync(sql, handler, errHandler, argUserId, argModule, argOperation, argCode, argIp,
                      argStart, argEnd);
 }
@@ -804,7 +819,8 @@ void getAuditLog(int64_t id, JsonCb onOk, ErrCb onErr) {
                 {"created_at", optStr(row, "created_at")},
             });
         },
-        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); }, SqlArg(id));
+        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); },
+        SqlArg(id));
 }
 
 void listConfigs(JsonCb onOk, ErrCb onErr) {
@@ -839,7 +855,8 @@ void updateConfig(const std::string& key, const std::string& value, JsonCb onOk,
             }
             onOk({{"config_key", key}, {"updated", true}});
         },
-        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); }, value, key);
+        [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); }, value,
+        key);
 }
 
 } // namespace hms::SystemService

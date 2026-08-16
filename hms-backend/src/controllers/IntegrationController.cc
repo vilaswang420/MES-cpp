@@ -15,12 +15,10 @@ class IntegrationController : public drogon::HttpController<IntegrationControlle
                   drogon::Post);
     ADD_METHOD_TO(IntegrationController::convertOrder, "/api/v1/integration/erp/{1}/convert",
                   drogon::Post);
-    ADD_METHOD_TO(IntegrationController::reportErp, "/api/v1/integration/erp/report",
-                  drogon::Post);
+    ADD_METHOD_TO(IntegrationController::reportErp, "/api/v1/integration/erp/report", drogon::Post);
     ADD_METHOD_TO(IntegrationController::pickRequest, "/api/v1/integration/wms/pick-request",
                   drogon::Post);
-    ADD_METHOD_TO(IntegrationController::stockIn, "/api/v1/integration/wms/stock-in",
-                  drogon::Post);
+    ADD_METHOD_TO(IntegrationController::stockIn, "/api/v1/integration/wms/stock-in", drogon::Post);
     ADD_METHOD_TO(IntegrationController::listLogs, "/api/v1/integration/logs", drogon::Get);
     ADD_METHOD_TO(IntegrationController::retryLog, "/api/v1/integration/logs/{1}/retry",
                   drogon::Post);

@@ -41,14 +41,12 @@ class QualityController : public drogon::HttpController<QualityController> {
                          std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
         auto traceId = traceIdOf(req);
         QcService::listInspections(paramInt(req, "page", 1), paramInt(req, "page_size", 20),
-                                   paramInt64(req, "work_order_id", 0),
-                                   paramInt(req, "result", -1), okCb(callback, traceId),
-                                   errCb(callback, traceId));
+                                   paramInt64(req, "work_order_id", 0), paramInt(req, "result", -1),
+                                   okCb(callback, traceId), errCb(callback, traceId));
     }
 
     void getInspection(const drogon::HttpRequestPtr& req,
-                       std::function<void(const drogon::HttpResponsePtr&)>&& callback,
-                       int64_t id) {
+                       std::function<void(const drogon::HttpResponsePtr&)>&& callback, int64_t id) {
         auto traceId = traceIdOf(req);
         QcService::getInspection(id, notNullCb(callback, traceId), errCb(callback, traceId));
     }

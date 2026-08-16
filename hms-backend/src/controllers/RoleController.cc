@@ -62,7 +62,8 @@ class RoleController : public drogon::HttpController<RoleController> {
                            int64_t id) {
         auto traceId = traceIdOf(req);
         auto body = bodyJson(req);
-        if (body.is_null() || !body.contains("permission_ids") || !body["permission_ids"].is_array())
+        if (body.is_null() || !body.contains("permission_ids") ||
+            !body["permission_ids"].is_array())
             return callback(ApiResponse::error(400, "permission_ids 必填且为数组", traceId));
         SystemService::assignPermissions(id, body["permission_ids"].get<std::vector<int64_t>>(),
                                          okCb(callback, traceId), errCb(callback, traceId));

@@ -22,7 +22,7 @@ namespace hms::WsBroadcastManager {
 namespace {
 
 constexpr const char* kRedisPrefix = "ws:broadcast:";
-constexpr double kMergeTickSec = 0.2;   // ??????? = 5Hz ??
+constexpr double kMergeTickSec = 0.2; // ??????? = 5Hz ??
 // ?????: drogon send ?????, ??????? + trantor ????????;
 // ???????????????????
 constexpr size_t kMaxSubsPerChannel = 2000;
@@ -137,8 +137,8 @@ void publishProductionRealtime() {
             if (mine) {
                 rdb2->execCommandAsync(
                     [](const drogon::nosql::RedisResult&) { queryAndPushRealtime(); },
-                    [](const drogon::nosql::RedisException&) {},
-                    "SET %s %s PX 3000 XX", kLeaderKey.c_str(), kInstanceId.c_str());
+                    [](const drogon::nosql::RedisException&) {}, "SET %s %s PX 3000 XX",
+                    kLeaderKey.c_str(), kInstanceId.c_str());
             } else {
                 rdb2->execCommandAsync(
                     [](const drogon::nosql::RedisResult& r2) {
@@ -149,12 +149,11 @@ void publishProductionRealtime() {
                         } catch (...) {
                         }
                     },
-                    [](const drogon::nosql::RedisException&) {},
-                    "SET %s %s NX PX 3000", kLeaderKey.c_str(), kInstanceId.c_str());
+                    [](const drogon::nosql::RedisException&) {}, "SET %s %s NX PX 3000",
+                    kLeaderKey.c_str(), kInstanceId.c_str());
             }
         },
-        [](const drogon::nosql::RedisException&) {},
-        "GET %s", kLeaderKey.c_str());
+        [](const drogon::nosql::RedisException&) {}, "GET %s", kLeaderKey.c_str());
 }
 
 // ????????????????? (?????? Redis ????????)
@@ -198,8 +197,8 @@ void redisSubscribeLoop(const std::string& host, int port) {
             redisReply* msg = nullptr;
             int rc = redisGetReply(ctx, reinterpret_cast<void**>(&msg));
             if (rc != REDIS_OK) {
-                LOG_WARN << "[ws] redisGetReply failed err=" << ctx->err << " " <<
-                    (ctx->errstr ? ctx->errstr : "");
+                LOG_WARN << "[ws] redisGetReply failed err=" << ctx->err << " "
+                         << (ctx->errstr ? ctx->errstr : "");
                 break; // ???? -> ??
             }
             if (msg && msg->type == REDIS_REPLY_ARRAY && msg->elements == 3 &&

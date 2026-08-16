@@ -46,7 +46,7 @@ TEST(CircuitBreaker, HalfOpenAfterCooldownAndProbeOutcome) {
     EXPECT_EQ(cb.state(), CircuitBreaker::State::OPEN);
 
     EXPECT_TRUE(cb.allowRequest()); // 再次半开
-    cb.recordSuccess(); // 半开探测成功 -> CLOSED
+    cb.recordSuccess();             // 半开探测成功 -> CLOSED
     EXPECT_EQ(cb.state(), CircuitBreaker::State::CLOSED);
     EXPECT_EQ(cb.failureCount(), 0);
 }

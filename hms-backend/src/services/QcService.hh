@@ -27,11 +27,9 @@ void getInspection(int64_t id, JsonCb onOk, ErrCb onErr);
 // ---- 缺陷 ----
 void listDefects(int page, int pageSize, int64_t workOrderId, int disposition,
                  const std::string& category, JsonCb onOk, ErrCb onErr);
-void handleDefect(int64_t id, const nlohmann::json& body, int64_t userId, JsonCb onOk,
-                  ErrCb onErr);
+void handleDefect(int64_t id, const nlohmann::json& body, int64_t userId, JsonCb onOk, ErrCb onErr);
 
 // ---- 统计 ----
-void statistics(const std::string& startDate, const std::string& endDate, JsonCb onOk,
-                ErrCb onErr);
+void statistics(const std::string& startDate, const std::string& endDate, JsonCb onOk, ErrCb onErr);
 
 } // namespace hms::QcService
