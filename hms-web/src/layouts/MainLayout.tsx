@@ -10,7 +10,17 @@ import {
     AuditOutlined,
     OrderedListOutlined,
     ScheduleOutlined,
-    AppstoreOutlined
+    AppstoreOutlined,
+    ApiOutlined,
+    AlertOutlined,
+    ControlOutlined,
+    CheckCircleOutlined,
+    SearchOutlined,
+    WarningOutlined,
+    BarChartOutlined,
+    SwapOutlined,
+    InboxOutlined,
+    FileSearchOutlined
 } from "@ant-design/icons";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../store/auth";
@@ -34,6 +44,40 @@ const MENU_TREE: MenuNode[] = [
         children: [
             { key: "/production/work-orders", label: "工单管理", perm: "menu:production:work-orders", icon: <OrderedListOutlined /> },
             { key: "/production/plans", label: "生产计划", perm: "menu:production:plans", icon: <ScheduleOutlined /> }
+        ]
+    },
+    {
+        key: "iot",
+        label: "IoT 管理",
+        perm: "menu:iot",
+        icon: <ApiOutlined />,
+        children: [
+            { key: "/iot/devices", label: "设备管理", perm: "menu:iot:devices", icon: <ControlOutlined /> },
+            { key: "/iot/alerts", label: "告警管理", perm: "menu:iot:alerts", icon: <AlertOutlined /> },
+            { key: "/iot/tasks", label: "采集任务", perm: "menu:iot:tasks", icon: <ApiOutlined /> }
+        ]
+    },
+    {
+        key: "quality",
+        label: "质量管理",
+        perm: "menu:quality",
+        icon: <CheckCircleOutlined />,
+        children: [
+            { key: "/quality/standards", label: "检验标准", perm: "menu:quality:standards", icon: <CheckCircleOutlined /> },
+            { key: "/quality/inspections", label: "检验记录", perm: "menu:quality:inspections", icon: <SearchOutlined /> },
+            { key: "/quality/defects", label: "缺陷管理", perm: "menu:quality:defects", icon: <WarningOutlined /> },
+            { key: "/quality/statistics", label: "质量统计", perm: "menu:quality:statistics", icon: <BarChartOutlined /> }
+        ]
+    },
+    {
+        key: "integration",
+        label: "集成管理",
+        perm: "menu:integration",
+        icon: <SwapOutlined />,
+        children: [
+            { key: "/integration/erp-sync", label: "ERP 同步", perm: "menu:integration:erp-sync", icon: <SwapOutlined /> },
+            { key: "/integration/wms-ops", label: "WMS 操作", perm: "menu:integration:wms-ops", icon: <InboxOutlined /> },
+            { key: "/integration/logs", label: "集成日志", perm: "menu:integration:logs", icon: <FileSearchOutlined /> }
         ]
     },
     {

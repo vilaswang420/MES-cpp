@@ -9,6 +9,16 @@ import Permissions from "./pages/system/Permissions";
 import AuditLogs from "./pages/system/AuditLogs";
 import WorkOrders from "./pages/production/WorkOrders";
 import Plans from "./pages/production/Plans";
+import Devices from "./pages/iot/Devices";
+import Alerts from "./pages/iot/Alerts";
+import Tasks from "./pages/iot/Tasks";
+import Standards from "./pages/quality/Standards";
+import Inspections from "./pages/quality/Inspections";
+import Defects from "./pages/quality/Defects";
+import Statistics from "./pages/quality/Statistics";
+import ErpSync from "./pages/integration/ErpSync";
+import WmsOps from "./pages/integration/WmsOps";
+import Logs from "./pages/integration/Logs";
 
 export default function App() {
     const { user } = useAuth();
@@ -28,6 +38,16 @@ export default function App() {
                     <Route path="system/audit-logs" element={<AuditLogs />} />
                     <Route path="production/work-orders" element={<WorkOrders />} />
                     <Route path="production/plans" element={<Plans />} />
+                    <Route path="iot/devices" element={<Devices />} />
+                    <Route path="iot/alerts" element={<Alerts />} />
+                    <Route path="iot/tasks" element={<Tasks />} />
+                    <Route path="quality/standards" element={<Standards />} />
+                    <Route path="quality/inspections" element={<Inspections />} />
+                    <Route path="quality/defects" element={<Defects />} />
+                    <Route path="quality/statistics" element={<Statistics />} />
+                    <Route path="integration/erp-sync" element={<ErpSync />} />
+                    <Route path="integration/wms-ops" element={<WmsOps />} />
+                    <Route path="integration/logs" element={<Logs />} />
                 </Route>
             </Routes>
         </HashRouter>
