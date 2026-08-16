@@ -239,16 +239,32 @@ void refresh(const nlohmann::json& body, JsonCb onOk, ErrCb onErr) {
                 "SELECT u.id, u.username, u.dept_id, COALESCE(d.dept_name,'') AS dept_name "
                 "FROM sys_users u LEFT JOIN sys_departments d ON d.id = u.dept_id "
                 "WHERE u.id = $1 AND u.status = 1 AND u.deleted = FALSE",
-                [userId, onOk, onErr](const drogon::orm::Result& r) mutable {
+                [userId, sessionId, onOk, onErr](const drogon::orm::Result& r) mutable {
                     if (r.empty())
                         return onErr(401, "用户不存在或已禁用");
                     auto row = r[0];
                     RbacService::loadMergedScopeAsync(
                         userId,
-                        [userId, row, onOk](const RbacService::ScopeResult& scope) mutable {
+                        [userId, row, sessionId,
+                         onOk](const RbacService::ScopeResult& scope) mutable {
                             issueTokens(userId, row["username"].as<std::string>(),
                                         row["dept_id"].isNull() ? 0 : row["dept_id"].as<int64_t>(),
-                                        row["dept_name"].as<std::string>(), scope, std::move(onOk));
+                                        row["dept_name"].as<std::string>(), scope,
+                                        [sessionId, onOk](const nlohmann::json& data) {
+                                            // P3-4.3 refresh 轮换: 新 token 签发成功后旧 session
+                                            // 立即作废, 旧 refresh 重放被拒; 黑名单写失败不阻断
+                                            // (fail-open, 新 token 仍可用)
+                                            auto rdb = drogon::app().getRedisClient();
+                                            rdb->execCommandAsync(
+                                                [onOk, data](const drogon::nosql::RedisResult&) {
+                                                    onOk(data);
+                                                },
+                                                [onOk, data](const drogon::nosql::RedisException&) {
+                                                    onOk(data);
+                                                },
+                                                "SET jwt:blacklist:%s 1 EX 604800",
+                                                sessionId.c_str());
+                                        });
                         },
                         [onErr](const std::exception& e) { onErr(500, e.what()); });
                 },
