@@ -701,26 +701,40 @@ void deleteDept(int64_t id, JsonCb onOk, ErrCb onErr) {
 
 // ============ 审计与配置 ============
 
-void listAuditLogs(int page, int pageSize, int64_t userId, const std::string& module, JsonCb onOk,
-                   ErrCb onErr) {
+void listAuditLogs(int page, int pageSize, const AuditLogFilter& f, JsonCb onOk, ErrCb onErr) {
     if (page < 1)
         page = 1;
     if (pageSize < 1 || pageSize > 200)
         pageSize = 20;
-    // 数值条件安全拼接; module 字符串走 $1 占位防注入
-    std::string where = "WHERE 1=1";
-    if (userId > 0)
-        where += " AND user_id = " + std::to_string(userId);
-    if (!module.empty())
-        where += " AND module = $1";
+    // 全部条件参数化 (NULL 哨兵), 数值/时间/字符串一律占位符绑定, 杜绝 SQL 拼接注入;
+    // created_at 上的时间范围条件由 PG 按月分区自动裁剪 (sys_audit_logs 分区表)
+    static const std::string kWhere =
+        " WHERE ($1::bigint IS NULL OR user_id = $1)"
+        " AND ($2::text IS NULL OR module = $2)"
+        " AND ($3::text IS NULL OR operation ILIKE '%' || $3 || '%')"
+        " AND ($4::int IS NULL OR response_code = $4)"
+        " AND ($5::text IS NULL OR ip_address ILIKE '%' || $5 || '%')"
+        " AND ($6::timestamptz IS NULL OR created_at >= $6)"
+        " AND ($7::timestamptz IS NULL OR created_at <= $7)";
     std::string sql =
         "SELECT id, user_id, username, module, operation, method, request_url, response_code, "
-        "ip_address, duration_ms, created_at FROM sys_audit_logs " +
-        where + " ORDER BY created_at DESC LIMIT " + std::to_string(pageSize) + " OFFSET " +
+        "ip_address, duration_ms, created_at FROM sys_audit_logs" +
+        kWhere + " ORDER BY created_at DESC LIMIT " + std::to_string(pageSize) + " OFFSET " +
         std::to_string((page - 1) * pageSize);
-    std::string countSql = "SELECT COUNT(*) AS cnt FROM sys_audit_logs " + where;
+    std::string countSql = "SELECT COUNT(*) AS cnt FROM sys_audit_logs" + kWhere;
+
+    auto argUserId = f.userId > 0 ? SqlArg(f.userId) : SqlArgNull();
+    auto argModule = f.module.empty() ? SqlArgNull() : SqlArg(f.module);
+    auto argOperation = f.operation.empty() ? SqlArgNull() : SqlArg(f.operation);
+    auto argCode = f.responseCode >= 0 ? SqlArg(f.responseCode) : SqlArgNull();
+    auto argIp = f.ip.empty() ? SqlArgNull() : SqlArg(f.ip);
+    auto argStart = f.startTime.empty() ? SqlArgNull() : SqlArg(f.startTime);
+    auto argEnd = f.endTime.empty() ? SqlArgNull() : SqlArg(f.endTime);
+
     auto db = drogon::app().getDbClient();
-    auto handler = [page, pageSize, countSql, module, onOk, onErr](const drogon::orm::Result& r) {
+    auto handler = [page, pageSize, countSql, onOk, onErr, argUserId, argModule, argOperation,
+                    argCode, argIp, argStart,
+                    argEnd](const drogon::orm::Result& r) {
         auto listArr = nlohmann::json::array();
         for (const auto& row : r)
             listArr.push_back({
@@ -752,16 +766,12 @@ void listAuditLogs(int page, int pageSize, int64_t userId, const std::string& mo
                   {"page", page},
                   {"page_size", pageSize}});
         };
-        if (!module.empty())
-            db2->execSqlAsync(countSql, countOk, countErr, module);
-        else
-            db2->execSqlAsync(countSql, countOk, countErr);
+        db2->execSqlAsync(countSql, countOk, countErr, argUserId, argModule, argOperation, argCode,
+                          argIp, argStart, argEnd);
     };
     auto errHandler = [onErr](const drogon::orm::DrogonDbException& e) { onErr(500, e.base().what()); };
-    if (!module.empty())
-        db->execSqlAsync(sql, handler, errHandler, module);
-    else
-        db->execSqlAsync(sql, handler, errHandler);
+    db->execSqlAsync(sql, handler, errHandler, argUserId, argModule, argOperation, argCode, argIp,
+                     argStart, argEnd);
 }
 
 void getAuditLog(int64_t id, JsonCb onOk, ErrCb onErr) {

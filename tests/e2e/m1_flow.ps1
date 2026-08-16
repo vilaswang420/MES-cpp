@@ -128,10 +128,21 @@ Invoke-Api-ExpectFail -Method GET -Path "/api/v1/system/users?page=1" -Token $op
 Step "data_scope 反例: operator 查 admin 创建的工单应 404"
 Invoke-Api-ExpectFail -Method GET -Path "/api/v1/production/work-orders/$woId" -Token $opToken -ExpectCode 404
 
-# ---- 8. 审计可分页查询 ----
+# ---- 8. 审计可分页查询 + 过滤 (P1-2.8) ----
 Step "审计日志分页查询"
 $audit = Invoke-Api -Method GET -Path "/api/v1/system/audit-logs?page=1&page_size=10" -Token $admin
 if ($audit.total -lt 1) { throw "审计日志为空" }
 Write-Host "  审计记录 total=$($audit.total)"
+
+Step "审计日志时间范围过滤 (created_at 触发分区裁剪)"
+$start = [uri]::EscapeDataString((Get-Date).AddDays(-1).ToString("yyyy-MM-ddTHH:mm:sszzz"))
+$auditRange = Invoke-Api -Method GET -Path "/api/v1/system/audit-logs?page=1&page_size=10&start_time=$start" -Token $admin
+if ($auditRange.total -lt 1) { throw "时间范围过滤应命中当日审计记录" }
+$auditAll = Invoke-Api -Method GET -Path "/api/v1/system/audit-logs?page=1&page_size=10&start_time=2099-01-01T00:00:00%2B08:00" -Token $admin
+if ($auditAll.total -ne 0) { throw "未来时间起点应返回空 (total=$($auditAll.total))" }
+
+Step "审计日志组合过滤 (module + response_code)"
+$auditComb = Invoke-Api -Method GET -Path "/api/v1/system/audit-logs?page=1&page_size=10&module=auth&response_code=200" -Token $admin
+if ($auditComb.total -lt 1) { throw "组合过滤应命中 login 审计 (module=auth&response_code=200)" }
 
 Write-Host "`nM1 E2E 全部通过" -ForegroundColor Green

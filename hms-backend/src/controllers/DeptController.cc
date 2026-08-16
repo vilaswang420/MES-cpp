@@ -57,8 +57,15 @@ class AuditLogController : public drogon::HttpController<AuditLogController> {
     void list(const drogon::HttpRequestPtr& req,
               std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
         auto traceId = traceIdOf(req);
-        SystemService::listAuditLogs(paramInt(req, "page", 1), paramInt(req, "page_size", 20),
-                                     paramInt64(req, "user_id", 0), paramStr(req, "module"),
+        SystemService::AuditLogFilter f;
+        f.userId = paramInt64(req, "user_id", 0);
+        f.module = paramStr(req, "module");
+        f.operation = paramStr(req, "operation");
+        f.responseCode = paramInt(req, "response_code", -1);
+        f.ip = paramStr(req, "ip");
+        f.startTime = paramStr(req, "start_time");
+        f.endTime = paramStr(req, "end_time");
+        SystemService::listAuditLogs(paramInt(req, "page", 1), paramInt(req, "page_size", 20), f,
                                      okCb(callback, traceId), errCb(callback, traceId));
     }
 

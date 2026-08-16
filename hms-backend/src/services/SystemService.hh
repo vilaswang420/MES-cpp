@@ -45,8 +45,17 @@ void updateDept(int64_t id, const nlohmann::json& body, JsonCb onOk, ErrCb onErr
 void deleteDept(int64_t id, JsonCb onOk, ErrCb onErr);
 
 // ---- 审计与配置 (4.11) ----
-void listAuditLogs(int page, int pageSize, int64_t userId, const std::string& module, JsonCb onOk,
-                   ErrCb onErr);
+// 审计日志过滤条件 (全部可选; responseCode < 0 表示不过滤)
+struct AuditLogFilter {
+    int64_t userId = 0;    // >0 时按用户过滤
+    std::string module;    // 非空时按模块精确过滤
+    std::string operation; // 非空时按操作模糊过滤 (ILIKE)
+    int responseCode = -1; // >=0 时按响应码精确过滤
+    std::string ip;        // 非空时按 IP 模糊过滤 (ILIKE)
+    std::string startTime; // 非空时 created_at >= startTime (ISO 8601, 触发按月分区裁剪)
+    std::string endTime;   // 非空时 created_at <= endTime
+};
+void listAuditLogs(int page, int pageSize, const AuditLogFilter& filter, JsonCb onOk, ErrCb onErr);
 void getAuditLog(int64_t id, JsonCb onOk, ErrCb onErr);
 void listConfigs(JsonCb onOk, ErrCb onErr);
 void updateConfig(const std::string& key, const std::string& value, JsonCb onOk, ErrCb onErr);
