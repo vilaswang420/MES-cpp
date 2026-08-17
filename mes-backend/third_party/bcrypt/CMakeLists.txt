@@ -9,8 +9,11 @@ add_library(mes_bcrypt STATIC
     src/crypt_gensalt.c
     src/wrapper.c)
 
-# 注意双 include 路径: 源码平台分支不同 —— Windows 走相对路径 ../include/bcrypt/bcrypt.h,
-# Linux 分支为裸 #include "bcrypt.h"/"ow-crypt.h", 需将 include/bcrypt 加入搜索路径
+# 注意双 include 路径: 源码平台分支不同 —— Windows 走相对路径 ../include/bcrypt/mes_bcrypt.h,
+# Linux 分支为裸 #include "mes_bcrypt.h"/"ow-crypt.h", 需将 include/bcrypt 加入搜索路径。
+# 重要: vendored C 头文件特意命名为 mes_bcrypt.h 而非 bcrypt.h, 以免在 Windows 上
+# 遮蔽 Windows SDK 自带的 bcrypt.h (CNG API), 否则 boost/winapi/bcrypt.hpp 等
+# 通过 #include <bcrypt.h> 拉到错误头文件, 导致 ncrypt.h 中 BCRYPT_KEY_HANDLE 未声明而编译失败。
 target_include_directories(mes_bcrypt PUBLIC include include/bcrypt)
 
 if(MSVC)

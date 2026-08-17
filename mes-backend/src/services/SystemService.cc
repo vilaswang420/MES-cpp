@@ -727,7 +727,7 @@ void listAuditLogs(int page, int pageSize, const AuditLogFilter& f, JsonCb onOk,
                                       " AND ($2::text IS NULL OR module = $2)"
                                       " AND ($3::text IS NULL OR operation ILIKE '%' || $3 || '%')"
                                       " AND ($4::int IS NULL OR response_code = $4)"
-                                      " AND ($5::text IS NULL OR ip_address ILIKE '%' || $5 || '%')"
+                                      " AND ($5::text IS NULL OR ip_address::text ILIKE '%' || $5 || '%')"
                                       " AND ($6::timestamptz IS NULL OR created_at >= $6)"
                                       " AND ($7::timestamptz IS NULL OR created_at <= $7)";
     std::string sql =

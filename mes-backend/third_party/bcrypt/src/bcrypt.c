@@ -31,12 +31,12 @@ typedef __int64 ssize_t;
 #endif
 #define BCRYPT_HASHSIZE 60
 
-#include "../include/bcrypt/bcrypt.h"
+#include "../include/bcrypt/mes_bcrypt.h"
 
 #include <windows.h>
 #include <wincrypt.h> /* CryptAcquireContext, CryptGenRandom */
 #else
-#include "bcrypt.h"
+#include "mes_bcrypt.h"
 #include "ow-crypt.h"
 #endif
 
