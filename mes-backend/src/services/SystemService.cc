@@ -3,6 +3,7 @@
 #include <drogon/drogon.h>
 
 #include <map>
+#include <string>
 
 #include "common/SqlParam.hh"
 #include "services/RbacService.hh"
@@ -17,6 +18,22 @@ constexpr const char* kDefaultPassword = "Mes@123456"; // 重置密码默认值 
 
 std::string optStr(const drogon::orm::Row& row, const char* field) {
     return row[field].isNull() ? std::string() : row[field].as<std::string>();
+}
+
+// 安全解析 JSON 数值: 兼容 number / 数字字符串 / 空串 / null, 失败回退 def
+// (前端 number 输入提交为字符串, 直接 get<int64_t>() 会抛异常)
+int64_t parseInt64(const nlohmann::json& v, int64_t def = 0) {
+    if (v.is_number()) return v.get<int64_t>();
+    if (v.is_string()) {
+        auto s = v.get<std::string>();
+        if (s.empty()) return def;
+        try {
+            return std::stoll(s);
+        } catch (...) {
+            return def;
+        }
+    }
+    return def;
 }
 
 // 失效持有指定角色用户的权限缓存
@@ -173,7 +190,7 @@ void createUser(const nlohmann::json& body, JsonCb onOk, ErrCb onErr) {
             db->execSqlAsync(
                 "INSERT INTO sys_users (dept_id, username, password_hash, real_name, employee_no, "
                 "email, phone, gender, status) VALUES "
-                "(NULLIF($1::bigint,0),$2,$3,$4,$5,$6,$7,$8::int,1) "
+                "(NULLIF($1::bigint,0),$2,$3,$4,NULLIF($5::text,''),NULLIF($6::text,''),NULLIF($7::text,''),$8::int,1) "
                 "RETURNING id",
                 [body, onOk, onErr](const drogon::orm::Result& r) {
                     auto id = r[0]["id"].as<int64_t>();
@@ -237,15 +254,18 @@ void updateUser(int64_t id, const nlohmann::json& body, JsonCb onOk, ErrCb onErr
         std::string sql = "UPDATE sys_users SET " + col +
                           " = $1, updated_at = NOW() "
                           "WHERE id = $2 AND deleted = FALSE";
-        if (col == "dept_id")
+        if (col == "dept_id") {
+            int64_t deptId = parseInt64(body[col], 0);
+            // 0 / 空 / null 视为未分配 (与 createUser 的 NULLIF 一致)
+            trans->execSqlAsync(
+                "UPDATE sys_users SET dept_id = NULLIF($1::bigint, 0), updated_at = NOW() "
+                "WHERE id = $2 AND deleted = FALSE",
+                [](const drogon::orm::Result&) {},
+                [](const drogon::orm::DrogonDbException&) {}, SqlArg(deptId), SqlArg(id));
+        } else if (col == "gender")
             trans->execSqlAsync(
                 sql, [](const drogon::orm::Result&) {},
-                [](const drogon::orm::DrogonDbException&) {},
-                SqlArg(body["dept_id"].get<int64_t>()), SqlArg(id));
-        else if (col == "gender")
-            trans->execSqlAsync(
-                sql, [](const drogon::orm::Result&) {},
-                [](const drogon::orm::DrogonDbException&) {}, SqlArg(body["gender"].get<int>()),
+                [](const drogon::orm::DrogonDbException&) {}, SqlArg((int)parseInt64(body[col], 0)),
                 SqlArg(id));
         else
             trans->execSqlAsync(
