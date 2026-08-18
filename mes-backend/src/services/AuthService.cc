@@ -201,7 +201,8 @@ void login(const nlohmann::json& body, const std::string& clientIp, JsonCb onOk,
             // P3-4.2: 缓存 key 依赖【本次尝试密码】的 SHA-256 (非明文, 非库内 hash),
             //         避免明文驻留缓存; 同时保证不同密码产生不同键 —— 否则错误密码会命中
             //         首次成功登录留下的 cacheKey->true, 绕过密码校验 (任意密码可登录).
-            auto cacheKey = username + "|" + clientIp + "|" + CryptoUtils::sha256Hex(password) + "|" + hash;
+            auto cacheKey = username + "|" + clientIp + "|" +
+                            CryptoUtils::sha256Hex(password) + "|" + hash;
             // 缓存命中直接在 IO 线程短路 (免去线程池调度往返)
             if (verifyCacheGet(cacheKey)) {
                 handleVerified(userId, row, clientIp, true, std::move(onOk), std::move(onErr));

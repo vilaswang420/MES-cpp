@@ -23,10 +23,14 @@ std::string optStr(const drogon::orm::Row& row, const char* field) {
 // 安全解析 JSON 数值: 兼容 number / 数字字符串 / 空串 / null, 失败回退 def
 // (前端 number 输入提交为字符串, 直接 get<int64_t>() 会抛异常)
 int64_t parseInt64(const nlohmann::json& v, int64_t def = 0) {
-    if (v.is_number()) return v.get<int64_t>();
+    if (v.is_number()) {
+        return v.get<int64_t>();
+    }
     if (v.is_string()) {
         auto s = v.get<std::string>();
-        if (s.empty()) return def;
+        if (s.empty()) {
+            return def;
+        }
         try {
             return std::stoll(s);
         } catch (...) {
@@ -190,7 +194,8 @@ void createUser(const nlohmann::json& body, JsonCb onOk, ErrCb onErr) {
             db->execSqlAsync(
                 "INSERT INTO sys_users (dept_id, username, password_hash, real_name, employee_no, "
                 "email, phone, gender, status) VALUES "
-                "(NULLIF($1::bigint,0),$2,$3,$4,NULLIF($5::text,''),NULLIF($6::text,''),NULLIF($7::text,''),$8::int,1) "
+                "(NULLIF($1::bigint,0),$2,$3,$4,NULLIF($5::text,''),"
+                "NULLIF($6::text,''),NULLIF($7::text,''),$8::int,1) "
                 "RETURNING id",
                 [body, onOk, onErr](const drogon::orm::Result& r) {
                     auto id = r[0]["id"].as<int64_t>();
@@ -261,17 +266,18 @@ void updateUser(int64_t id, const nlohmann::json& body, JsonCb onOk, ErrCb onErr
                 "UPDATE sys_users SET dept_id = NULLIF($1::bigint, 0), updated_at = NOW() "
                 "WHERE id = $2 AND deleted = FALSE",
                 [](const drogon::orm::Result&) {},
-                [](const drogon::orm::DrogonDbException&) {}, SqlArg(deptId), SqlArg(id));
+                [](const drogon::orm::DrogonDbException&) {},
+                SqlArg(deptId), SqlArg(id));
         } else if (col == "gender")
             trans->execSqlAsync(
                 sql, [](const drogon::orm::Result&) {},
-                [](const drogon::orm::DrogonDbException&) {}, SqlArg((int)parseInt64(body[col], 0)),
-                SqlArg(id));
+                [](const drogon::orm::DrogonDbException&) {},
+                SqlArg((int)parseInt64(body[col], 0)), SqlArg(id));
         else
             trans->execSqlAsync(
                 sql, [](const drogon::orm::Result&) {},
-                [](const drogon::orm::DrogonDbException&) {}, body[col].get<std::string>(),
-                SqlArg(id));
+                [](const drogon::orm::DrogonDbException&) {},
+                body[col].get<std::string>(), SqlArg(id));
     }
     // trans 函数返回时析构 -> 排队 COMMIT (在上述 UPDATE 之后) -> commitCallback 响应
 }
@@ -743,17 +749,18 @@ void listAuditLogs(int page, int pageSize, const AuditLogFilter& f, JsonCb onOk,
         pageSize = 20;
     // 全部条件参数化 (NULL 哨兵), 数值/时间/字符串一律占位符绑定, 杜绝 SQL 拼接注入;
     // created_at 上的时间范围条件由 PG 按月分区自动裁剪 (sys_audit_logs 分区表)
-    static const std::string kWhere = " WHERE ($1::bigint IS NULL OR user_id = $1)"
-                                      " AND ($2::text IS NULL OR module = $2)"
-                                      " AND ($3::text IS NULL OR operation ILIKE '%' || $3 || '%')"
-                                      " AND ($4::int IS NULL OR response_code = $4)"
-                                      " AND ($5::text IS NULL OR ip_address::text ILIKE '%' || $5 || '%')"
-                                      " AND ($6::timestamptz IS NULL OR created_at >= $6)"
-                                      " AND ($7::timestamptz IS NULL OR created_at <= $7)";
+    static const std::string kWhere =
+        " WHERE ($1::bigint IS NULL OR user_id = $1)"
+        " AND ($2::text IS NULL OR module = $2)"
+        " AND ($3::text IS NULL OR operation ILIKE '%' || $3 || '%')"
+        " AND ($4::int IS NULL OR response_code = $4)"
+        " AND ($5::text IS NULL OR ip_address::text ILIKE '%' || $5 || '%')"
+        " AND ($6::timestamptz IS NULL OR created_at >= $6)"
+        " AND ($7::timestamptz IS NULL OR created_at <= $7)";
     std::string sql =
         "SELECT id, user_id, username, module, operation, method, request_url, response_code, "
-        "ip_address, duration_ms, created_at FROM sys_audit_logs" +
-        kWhere + " ORDER BY created_at DESC LIMIT " + std::to_string(pageSize) + " OFFSET " +
+        "ip_address, duration_ms, created_at FROM sys_audit_logs" + kWhere +
+        " ORDER BY created_at DESC LIMIT " + std::to_string(pageSize) + " OFFSET " +
         std::to_string((page - 1) * pageSize);
     std::string countSql = "SELECT COUNT(*) AS cnt FROM sys_audit_logs" + kWhere;
 
