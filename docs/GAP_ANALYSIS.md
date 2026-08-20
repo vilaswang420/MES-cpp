@@ -274,15 +274,15 @@
 
 ## 4. 数据库索引与约束缺失
 
-### 4.1 缺失索引
+### 4.1 缺失索引（已由 010_fixes + 015 迁移补齐，2026-08-20）
 
-| 表 | 缺失索引 | 影响查询 | 位置 |
+| 表 | 缺失索引 | 影响查询 | 状态 |
 |----|---------|---------|------|
-| `prod_work_orders` | `(created_by)` | data_scope 过滤对每条工单查询全表扫 | WorkOrderService.cc L60-87 |
-| `qc_inspections` | `(inspected_at)` | 统计按日趋势 GROUP BY 时间范围扫描 | QcService.cc L423-432 |
-| `sys_audit_logs` | `(module)` | 按 module 过滤审计日志 | SystemService.cc L715 |
-| `mq_outbox` | `(status, retry_count)` | OutboxDispatcher 重投场景扫描 | OutboxDispatcher.cc |
-| `iot_alerts` | 无分区/保留策略 | 告警表无限增长 (对比 iot_raw_data 90 天保留) | 004 迁移 |
+| `prod_work_orders` | `(created_by)` | data_scope 过滤对每条工单查询全表扫 | ✅ 010 `idx_wo_created_by` |
+| `qc_inspections` | `(inspected_at)` | 统计按日趋势 GROUP BY 时间范围扫描 | ✅ 010 `idx_insp_inspected_at` |
+| `sys_audit_logs` | `(module)` | 按 module 过滤审计日志 | ✅ 010 `idx_audit_module` |
+| `mq_outbox` | `(status, retry_count)` | OutboxDispatcher 重投场景扫描 | ✅ 010 `idx_outbox_status_retry` |
+| `iot_alerts` | 无分区/保留策略 | 告警表无限增长 | ✅ 015 pg_cron 每日清理 180 天前 |
 
 ### 4.2 缺失约束（已由 018 迁移补齐，2026-08-20）
 
@@ -350,7 +350,6 @@
 | 18 | 自签证书私钥从仓库移除 | 半天 | 无 |
 | 19 | 监控 exporter 补齐（node/postgres/redis/rabbitmq） | 2 天 | #11 |
 | 20 | Service 层单测补齐 | 1-2 周 | 无 |
-| 21 | 缺失索引添加 | 1 天 | 无 |
 | 24 | 日志聚合（Loki） | 1 周 | 无 |
 
 ### P3 — 功能增强（二期 / 增值）
@@ -382,6 +381,7 @@
 |--------|------|---------|
 | 22 | 缺失约束添加 | 018_missing_constraints 迁移补齐（部分唯一索引 + 3 个 FK，幂等可重复执行） |
 | 25 | 设计文档漂移修正 | 修正 §5 六项漂移 (WS 频道/报工字段/审计过滤/用户列表响应/验证码), 同步 MES 设计文档 + FEATURE |
+| 21 | 缺失索引添加 | 010_fixes (4 索引) + 015 (iot_alerts 保留) 已于早期补齐 |
 
 ---
 
