@@ -30,7 +30,7 @@
 | [FEATURE_INVENTORY.md](FEATURE_INVENTORY.md) | 已有功能清单（76 路由）+ 核心缺口分析 | v1.1 |
 | [GAP_ANALYSIS.md](GAP_ANALYSIS.md) | 功能缺失详细分析（7 核心 / 11 增强 / 8 技术债，含文件行号） | v1.0 |
 | [CORE_PLAN.md](CORE_PLAN.md) | 核心功能完善方案（P1 正确性 / P2 稳定性 / P3 安全性） | v1.1 / P1–P3 已完成 |
-| [P4_IMPLEMENTATION_PLAN.md](P4_IMPLEMENTATION_PLAN.md) | P4 缺失功能实施方案（5.1–5.7） | v1.0 / 评审通过，实施中 |
+| [P4_IMPLEMENTATION_PLAN.md](P4_IMPLEMENTATION_PLAN.md) | P4 缺失功能实施方案（5.1–5.7） | v1.0 / 已完成（代码与集成已落地；容器化待补） |
 
 ### 5. 过程 / 交接文档
 | 文档 | 说明 | 状态 |
@@ -50,4 +50,4 @@
 - **新接手**：README → HANDOVER.md → MES_Architecture_Design.md → DEV_GUIDE.md
 - **要部署**：DEPLOY_LINUX.md + PAD_MANUAL.md
 - **要开发某模块**：对应子服务 README + FEATURE_INVENTORY.md + GAP_ANALYSIS.md
-- **要排期需求**：CORE_PLAN.md（已完成项）+ P4_IMPLEMENTATION_PLAN.md（进行中）
+- **要排期需求**：CORE_PLAN.md（已完成项）+ P4_IMPLEMENTATION_PLAN.md（已完成，容器化待补）

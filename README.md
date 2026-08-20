@@ -13,7 +13,7 @@
 | M2 | IoT / 质量 / 看板 / 集成 | ✅ 完成（投毒消息进 DLQ + WS<2s） |
 | M3 | 高可用与容量验证 | ✅ 完成（2h 全链路压测 GA 达标） |
 | P1–P3 | 核心功能完善（正确性/稳定性/安全性） | ✅ 完成（见 [`docs/CORE_PLAN.md`](docs/CORE_PLAN.md)） |
-| P4 | 缺失功能补齐（5.1–5.7） | 🟡 评审通过，实施中（见 [`docs/P4_IMPLEMENTATION_PLAN.md`](docs/P4_IMPLEMENTATION_PLAN.md)） |
+| P4 | 缺失功能补齐（5.1–5.7） | ✅ 已完成（代码与集成已落地；mes-iot 容器化/compose 待补，见 [`docs/P4_IMPLEMENTATION_PLAN.md`](docs/P4_IMPLEMENTATION_PLAN.md)） |
 
 > 命名说明：本项目原名 HMS（Human Manufacturing System，非标准自造名），已于 **2026-08-17 全量更名为 MES**（含目录、文件名、代码标识符三态大小写）。本地克隆目录 `New-HMS` 为历史路径，逻辑项目名即 MES。
 
@@ -84,7 +84,7 @@ curl http://localhost:8088/healthz
 | [docs/FEATURE_INVENTORY.md](docs/FEATURE_INVENTORY.md) | 已有功能清单 + 核心缺口分析 |
 | [docs/GAP_ANALYSIS.md](docs/GAP_ANALYSIS.md) | 功能缺失详细分析（源码审计） |
 | [docs/CORE_PLAN.md](docs/CORE_PLAN.md) | 核心功能完善方案（P1–P3 已完成） |
-| [docs/P4_IMPLEMENTATION_PLAN.md](docs/P4_IMPLEMENTATION_PLAN.md) | P4 缺失功能实施方案（实施中） |
+| [docs/P4_IMPLEMENTATION_PLAN.md](docs/P4_IMPLEMENTATION_PLAN.md) | P4 缺失功能实施方案（已完成，容器化待补） |
 | [docs/BUILD_PROGRESS.md](docs/BUILD_PROGRESS.md) | 构建与验证进展记录 |
 | [HANDOVER.md](HANDOVER.md) | 项目交接文档（新接手者必读） |
 | [docs/adr/0001-authforge-integration.md](docs/adr/0001-authforge-integration.md) | ADR 0001: AuthForge 集成决策 |
