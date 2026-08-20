@@ -265,19 +265,18 @@ void updateUser(int64_t id, const nlohmann::json& body, JsonCb onOk, ErrCb onErr
             trans->execSqlAsync(
                 "UPDATE sys_users SET dept_id = NULLIF($1::bigint, 0), updated_at = NOW() "
                 "WHERE id = $2 AND deleted = FALSE",
-                [](const drogon::orm::Result&) {},
-                [](const drogon::orm::DrogonDbException&) {},
+                [](const drogon::orm::Result&) {}, [](const drogon::orm::DrogonDbException&) {},
                 SqlArg(deptId), SqlArg(id));
         } else if (col == "gender")
             trans->execSqlAsync(
                 sql, [](const drogon::orm::Result&) {},
-                [](const drogon::orm::DrogonDbException&) {},
-                SqlArg((int)parseInt64(body[col], 0)), SqlArg(id));
+                [](const drogon::orm::DrogonDbException&) {}, SqlArg((int)parseInt64(body[col], 0)),
+                SqlArg(id));
         else
             trans->execSqlAsync(
                 sql, [](const drogon::orm::Result&) {},
-                [](const drogon::orm::DrogonDbException&) {},
-                body[col].get<std::string>(), SqlArg(id));
+                [](const drogon::orm::DrogonDbException&) {}, body[col].get<std::string>(),
+                SqlArg(id));
     }
     // trans 函数返回时析构 -> 排队 COMMIT (在上述 UPDATE 之后) -> commitCallback 响应
 }
@@ -759,8 +758,8 @@ void listAuditLogs(int page, int pageSize, const AuditLogFilter& f, JsonCb onOk,
         " AND ($7::timestamptz IS NULL OR created_at <= $7)";
     std::string sql =
         "SELECT id, user_id, username, module, operation, method, request_url, response_code, "
-        "ip_address, duration_ms, created_at FROM sys_audit_logs" + kWhere +
-        " ORDER BY created_at DESC LIMIT " + std::to_string(pageSize) + " OFFSET " +
+        "ip_address, duration_ms, created_at FROM sys_audit_logs" +
+        kWhere + " ORDER BY created_at DESC LIMIT " + std::to_string(pageSize) + " OFFSET " +
         std::to_string((page - 1) * pageSize);
     std::string countSql = "SELECT COUNT(*) AS cnt FROM sys_audit_logs" + kWhere;
 

@@ -93,7 +93,7 @@ jobs:
         steps:
             - uses: actions/checkout@v4
             - name: 系统依赖
-              run: sudo apt-get update && sudo apt-get install -y cmake ninja-build libssl-dev zlib1g-dev libjsoncpp-dev uuid-dev clang-format g++-14
+              run: sudo apt-get update && sudo apt-get install -y cmake ninja-build libssl-dev zlib1g-dev libjsoncpp-dev uuid-dev clang-format-18 g++-14
             - name: 选择 GCC 14
               # gcc-13 对 C++20 协程存在 internal compiler error (build_special_member_call),
               # IntegrationService.cc saga 协程析构路径触发; gcc-14 已修复
@@ -107,7 +107,7 @@ jobs:
             - name: clang-format 检查
               run: |
                   cd mes-backend
-                  find src tests \( -name '*.cc' -o -name '*.hh' \) -print0 | xargs -0 clang-format --dry-run --Werror
+                  find src tests \( -name '*.cc' -o -name '*.hh' \) -print0 | xargs -0 clang-format-18 --dry-run --Werror
             - name: CMake 配置 + 构建
               run: |
                   # 注意: 工具链文件在 vcpkg 仓库的 scripts/buildsystems/ 子目录, 不在根目录
