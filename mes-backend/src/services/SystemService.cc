@@ -256,6 +256,7 @@ void updateUser(int64_t id, const nlohmann::json& body, JsonCb onOk, ErrCb onErr
         onOk({{"id", id}, {"updated", true}});
     });
     for (const auto& col : cols) {
+        // col 来自调用方白名单列集合 (dept_id/gender/...), 非请求原始字段名 -> 无注入
         std::string sql = "UPDATE sys_users SET " + col +
                           " = $1, updated_at = NOW() "
                           "WHERE id = $2 AND deleted = FALSE";

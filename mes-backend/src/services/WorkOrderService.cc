@@ -58,6 +58,7 @@ ScopeSql buildScopeSql(const UserCtx& ctx) {
         s.condition = "1=1";
         break;
     case 1:
+        // ctx 为已认证用户上下文 (可信), num() 转数字字符串, 非外部用户输入 -> 无注入
         s.condition = "wo.created_by = " + num(ctx.userId);
         break;
     case 2:
