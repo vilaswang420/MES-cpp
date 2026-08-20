@@ -284,14 +284,14 @@
 | `mq_outbox` | `(status, retry_count)` | OutboxDispatcher 重投场景扫描 | OutboxDispatcher.cc |
 | `iot_alerts` | 无分区/保留策略 | 告警表无限增长 (对比 iot_raw_data 90 天保留) | 004 迁移 |
 
-### 4.2 缺失约束
+### 4.2 缺失约束（已由 018 迁移补齐，2026-08-20）
 
-| 表 | 缺失约束 | 风险 |
-|----|---------|------|
-| `iot_raw_data` | `device_id`/`sensor_id` 无外键 | 分区表性能取舍，但未注释说明 |
-| `prod_work_orders` | `erp_order_no` 无 UNIQUE | 可能重复关联 ERP 订单 |
-| `integ_erp_orders` | `work_order_id` 无 FK | 工单删除后孤立记录 |
-| `qc_defects` | `station_id`/`operator_id` 无 FK | 工位/用户删除后孤立记录 |
+| 表 | 缺失约束 | 风险 | 状态 |
+|----|---------|------|------|
+| `iot_raw_data` | `device_id`/`sensor_id` 无外键 | 分区表性能取舍，不加 FK | ✅ 已补充列注释说明取舍 |
+| `prod_work_orders` | `erp_order_no` 无 UNIQUE | 可能重复关联 ERP 订单 | ✅ 018 部分唯一索引 `uq_wo_erp_no` |
+| `integ_erp_orders` | `work_order_id` 无 FK | 工单删除后孤立记录 | ✅ 018 `fk_erp_wo` (ON DELETE SET NULL) |
+| `qc_defects` | `station_id`/`operator_id` 无 FK | 工位/用户删除后孤立记录 | ✅ 018 `fk_defect_station` / `fk_defect_operator` |
 
 ---
 
@@ -351,7 +351,6 @@
 | 19 | 监控 exporter 补齐（node/postgres/redis/rabbitmq） | 2 天 | #11 |
 | 20 | Service 层单测补齐 | 1-2 周 | 无 |
 | 21 | 缺失索引添加 | 1 天 | 无 |
-| 22 | 缺失约束添加 | 1 天 | 无 |
 | 24 | 日志聚合（Loki） | 1 周 | 无 |
 | 25 | 设计文档漂移修正 | 1 天 | 无 |
 
@@ -377,6 +376,12 @@
 | P0 #5 | 验证码图形渲染 | P3-4.1 ✅ |
 | P1 #13 | OEE 自动计算消费者 | P4-5.4 ✅ |
 | P1 #14 | IoT 域管理补齐 | P4-5.7 ✅ |
+
+### P2 技术债务已完成项
+
+| 原编号 | 缺口 | 关闭依据 |
+|--------|------|---------|
+| 22 | 缺失约束添加 | 018_missing_constraints 迁移补齐（部分唯一索引 + 3 个 FK，幂等可重复执行） |
 
 ---
 
