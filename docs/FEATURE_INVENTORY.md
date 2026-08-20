@@ -194,7 +194,7 @@
 |------|------|------|
 | `/ws/dashboard` | WS 升级 + 频道订阅 | ✅ |
 
-**频道**: `production.realtime` / `device.status` / `alert.active` / `workorder.event`
+**频道**: `production.realtime` / `device.status` / `alert` / `workorder.event`
 
 ### 2.11 运维端点
 

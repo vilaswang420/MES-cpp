@@ -299,14 +299,14 @@
 
 > 以下为设计文档与实际实现不一致之处，需同步更新文档或代码。
 
-| 项目 | 设计文档 | 实际实现 | 建议 |
+| 项目 | 设计文档(原) | 实际实现 | 状态 (2026-08-20 修正) |
 |------|---------|---------|------|
-| WS 频道名 | `alert.active` | `alert` | 统一为 `alert`，更新设计文档 |
-| 报工字段 | `operation_id/workstation_id/operator_id/shift` | `step_seq` | 扩展报工接口字段 |
-| 验证码 | 图形验证码 | 明文返显 | 实现图形验证码 |
-| 审计日志过滤 | `operation`/`start_time`/`end_time` | `user_id`/`module` | 补齐过滤条件 |
-| 用户列表响应 | `items` | `list` | 统一响应字段名 |
-| FEATURE_INVENTORY.md | "图形验证码 ✅" | 明文验证码 | 更正文档 |
+| WS 频道名 | `alert.active` | `alert` | ✅ 已修正 (MES 设计 1309/1356 + FEATURE 197 均改 `alert`) |
+| 报工字段 | `operation_id/workstation_id/operator_id/shift` | `step_seq` | ✅ 已修正 (设计文档报工请求 `operation_id`→`step_seq`) |
+| 验证码 | 图形验证码 | 明文返显 | ✅ 已随 P4-5.1 实现 SVG 图形验证码, 设计文档描述正确, 无漂移 |
+| 审计日志过滤 | `operation`/`start_time`/`end_time` | `user_id`/`module`/`operation` | ✅ 已修正 (设计文档去掉 start/end, 实际支持 user_id/module/operation) |
+| 用户列表响应 | `items` | `list` | ✅ 已修正 (设计文档 1124 `items`→`list`) |
+| FEATURE_INVENTORY.md | "图形验证码 ✅" | 明文验证码 | ✅ 已在 bbe329d 更正 (P4 图形验证码已落地) |
 
 ---
 
@@ -352,7 +352,6 @@
 | 20 | Service 层单测补齐 | 1-2 周 | 无 |
 | 21 | 缺失索引添加 | 1 天 | 无 |
 | 24 | 日志聚合（Loki） | 1 周 | 无 |
-| 25 | 设计文档漂移修正 | 1 天 | 无 |
 
 ### P3 — 功能增强（二期 / 增值）
 
@@ -382,6 +381,7 @@
 | 原编号 | 缺口 | 关闭依据 |
 |--------|------|---------|
 | 22 | 缺失约束添加 | 018_missing_constraints 迁移补齐（部分唯一索引 + 3 个 FK，幂等可重复执行） |
+| 25 | 设计文档漂移修正 | 修正 §5 六项漂移 (WS 频道/报工字段/审计过滤/用户列表响应/验证码), 同步 MES 设计文档 + FEATURE |
 
 ---
 

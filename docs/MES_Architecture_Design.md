@@ -1121,7 +1121,7 @@ Query: page=1&size=20&username=admin&dept_id=1&status=1
     "code": 200,
     "data": {
         "total": 156,
-        "items": [
+        "list": [
             {
                 "id": 1,
                 "username": "admin",
@@ -1206,7 +1206,7 @@ Query: page=1&size=20&username=admin&dept_id=1&status=1
 ```json
 // Request - 工序报工
 {
-    "operation_id": 101,
+    "step_seq": 1,
     "workstation_id": 5,
     "operator_id": 88,
     "completed_qty": 100,
@@ -1306,7 +1306,7 @@ Query: start_time=2026-08-09T00:00:00Z&end_time=2026-08-09T20:00:00Z&interval=5m
 ```json
 {
     "action": "subscribe",
-    "channels": ["production.realtime", "device.status", "alert.active"]
+    "channels": ["production.realtime", "device.status", "alert"]
 }
 ```
 
@@ -1353,7 +1353,7 @@ Query: start_time=2026-08-09T00:00:00Z&end_time=2026-08-09T20:00:00Z&interval=5m
 // 告警推送
 {
     "type": "alert.trigger",
-    "channel": "alert.active",
+    "channel": "alert",
     "data": {
         "alert_id": 2001,
         "device_name": "CNC-001",
@@ -1414,7 +1414,7 @@ Query: start_time=2026-08-09T00:00:00Z&end_time=2026-08-09T20:00:00Z&interval=5m
 
 **GET /api/v1/system/audit-logs**
 ```
-Query: page=1&size=20&user_id=1&module=work_order&operation=CREATE&start_time=2026-08-01T00:00:00Z&end_time=2026-08-09T23:59:59Z
+Query: page=1&size=20&user_id=1&module=work_order&operation=CREATE
 ```
 
 ---
