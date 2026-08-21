@@ -116,6 +116,12 @@ cat > "$VCPKG_ROOT/vcpkg-configuration.json" <<EOF
 EOF
 
 echo "==> [4/5] vcpkg install (manifest 模式, 依赖清单 = mes-backend/vcpkg.json)"
+# 关键: 强制 vcpkg 使用系统已装好的 cmake(>=4.4.2)/ninja(>=1.13.2),
+# 不要自举下载自带副本并 add_to_path -- 否则在部分环境会触发
+# "Host path separator (:) in path" 报错 (vcpkg relocate 工具时路径分隔符冲突)。
+# 注意: 必须确保系统 ninja 真的是 >=1.13.2 (pip 镜像最高仅 1.13.0, 需用 ghfast.top 装官方 1.13.2)。
+export VCPKG_FORCE_SYSTEM_BINARIES=1
+unset VCPKG_HOST_PATH_LIST_SEPARATOR
 # 必须用动态 triplet: simpleamqpclient 等 port 仅支持动态链接 ("!static"),
 # vcpkg 默认 x64-linux 是静态 triplet, 会触发 "does not match x64-linux" 报错。
 # 注: VCPKG_TARGET_TRIPLET 环境变量被 vcpkg.cmake 忽略, 必须走 -D (同 CI 配置)。
