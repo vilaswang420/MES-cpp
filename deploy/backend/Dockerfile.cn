@@ -10,9 +10,11 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 # 切换阿里云 apt 源 (Ubuntu 24.04 使用 deb822 格式)
+# libkrb5-3/libldap2: libpq 客户端库运行时可能动态链接, 容器内缺失会导致加载 libpq.so 失败
 RUN sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g; s|http://security.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources \
  && apt-get update && apt-get install -y --no-install-recommends \
         libssl3 zlib1g ca-certificates tzdata \
+        libkrb5-3 libldap2 \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

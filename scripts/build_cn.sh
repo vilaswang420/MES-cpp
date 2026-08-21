@@ -5,7 +5,8 @@
 # 国内网络适配:
 #   1. vcpkg 仓库  -> Gitee 镜像 (国内可达)
 #   2. vcpkg 自举   -> VCPKG_FORCE_SYSTEM_BINARIES=1 (用系统 gcc, 不下载 vcpkg-glibc)
-#   3. 依赖源码下载 -> 走 ghfast.top GitHub 代理 (项目 postgres Dockerfile 已验证)
+#   3. 依赖源码下载 -> 走 ghfast.top GitHub 代理 (仅镜像 github.com)
+#   4. 非 GitHub 源 -> postgresql.org 等走各自国内镜像 seed 到 vcpkg downloads (ghfast.top 覆盖不到)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -114,6 +115,30 @@ cat > "$VCPKG_ROOT/vcpkg-configuration.json" <<EOF
   }
 }
 EOF
+
+echo "==> [3.5/5] 预置非 GitHub 源码 (ghfast.top 仅镜像 github.com, 覆盖不到的源需国内镜像 seed)"
+# 问题: libpq 端口依赖 postgresql 源码 (postgresql-18.4.tar.bz2) 从 ftp.postgresql.org 下载,
+#   ghfast.top 代理只镜像 github.com, 国内直连 postgresql.org 会卡死/超时 (实测 tuna/ustc/华为云均 404,
+#   仅 aliyun/tencent 镜像可用, 而服务器在阿里云故优先 aliyun)。
+# 解决: 构建前先用对应国内镜像把 tarball 落到 vcpkg downloads 缓存, vcpkg 校验 SHA512 通过后会
+#   直接复用, 不再直连上游源。键=下载目标文件名(vcpkg downloads 里的 base name), 值=国内镜像完整 URL。
+seed_non_github_sources() {
+  local DL="$VCPKG_ROOT/downloads"
+  mkdir -p "$DL"
+  declare -A SEED=(
+    ["postgresql-18.4.tar.bz2"]="https://mirrors.aliyun.com/postgresql/source/v18.4/postgresql-18.4.tar.bz2"
+  )
+  for f in "${!SEED[@]}"; do
+    if [ -s "$DL/$f" ]; then
+      echo "    已存在(跳过): $f"
+      continue
+    fi
+    echo "    seed 非GitHub源: $f"
+    curl -fL "${SEED[$f]}" -o "$DL/$f" \
+      || echo "    WARN: $f 下载失败, vcpkg 将尝试直连上游(可能超时)"
+  done
+}
+seed_non_github_sources
 
 echo "==> [4/5] vcpkg install (manifest 模式, 依赖清单 = mes-backend/vcpkg.json)"
 # 关键: 强制 vcpkg 使用系统已装好的 cmake(>=4.4.2)/ninja(>=1.13.2),
