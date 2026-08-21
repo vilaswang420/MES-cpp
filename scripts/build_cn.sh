@@ -17,7 +17,8 @@ sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
     build-essential cmake ninja-build pkg-config git curl ca-certificates \
     python3-pip zip unzip tar libssl-dev zlib1g-dev \
-    perl nasm bison flex
+    perl nasm bison flex \
+    gcc-14 g++-14
 
 echo "==> [1.5/5] 确保 cmake >= 4.4.0 (vcpkg 自举新要求, 系统 apt 仅 3.28 过低)"
 # vcpkg 近期版本要求 cmake >= 4.4.0, 而 noble apt 仓库最高只有 3.28.3,
@@ -102,6 +103,12 @@ else
 fi
 export VCPKG_ROOT
 
+echo "==> [2.5/5] 固定编译器为 gcc-14 (GCC 13 在 C++20 协程下会 internal compiler error)"
+# GCC 13 编译 drogon::Task<> 协程时触发 build_special_member_call 内部编译器错误 (ICE),
+# 升级到 gcc-14 后修复。noble apt 自带 gcc-14, 设为 C/C++ 编译器供 vcpkg 端口与 mes-backend 共用。
+export CC=gcc-14
+export CXX=g++-14
+
 echo "==> [3/5] 配置 vcpkg 资产代理 (ghfast.top)"
 # 让 vcpkg 下载依赖源码时走 GitHub 代理; 本地已有 downloads 缓存则不受影响
 cat > "$VCPKG_ROOT/vcpkg-configuration.json" <<EOF
@@ -155,6 +162,7 @@ mkdir -p build-out/vcpkg-cache
 cmake -S mes-backend -B build-out/cmake -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DVCPKG_TARGET_TRIPLET=x64-linux-dynamic \
+    -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14 \
     -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
 
 echo "==> [5/5] 编译二进制"
