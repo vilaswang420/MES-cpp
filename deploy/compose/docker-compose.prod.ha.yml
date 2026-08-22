@@ -1,0 +1,104 @@
+# 生产高可用叠加层 (optional overlay)
+# 用法:
+#   docker compose -f docker-compose.prod.yml -f docker-compose.prod.ha.yml up -d
+# 仅用 docker-compose.prod.yml 时为精简默认形态:
+#   - Redis 单实例 (redis-1)
+#   - 无 PG 只读副本 (读写分离关闭, 只读走主库)
+# 叠加本文件后打开高可用:
+#   - PostgreSQL 只读副本 postgres-replica (读写分离)
+#   - Redis Cluster 3主3从
+# ⚠ Redis Cluster 限制: 后端当前用 Drogon 内置 hiredis 单节点客户端, 不支持 Cluster 的
+#   MOVED/ASK 重定向, 开启后约 2/3 的 key 会读写出错。须待后端升级为集群客户端后方可实际启用。
+#   在后端支持前, 建议保持 Redis 单实例 (不叠加本文件或仅叠加 PG 副本部分)。
+# RabbitMQ 3 节点集群已在基础文件中默认开启, 不在此叠加。
+
+services:
+  # ---- PG 只读副本 (任务 25 读写分离) ----
+  # 数据目录由 deploy/postgres/init_replica.sh 通过 pg_basebackup 预填充 (含 standby.signal)
+  postgres-replica:
+    build:
+      context: ../postgres
+    environment:
+      POSTGRES_DB: mes
+      POSTGRES_USER: mes
+      POSTGRES_PASSWORD: ${MES_PG_PASSWORD}
+    command: ["postgres", "-c", "hot_standby=on"]
+    volumes:
+      - mes_pg_replica:/var/lib/postgresql/data
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mes -d mes"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  # ---- Redis Cluster: 把 redis-1 改为 cluster-enabled, 并补齐 2~6 + 初始化 ----
+  # ⚠ 见文件头限制说明: 当前后端不支持集群客户端, 启用后会读写出错。
+  redis-1:
+    command: ["redis-server", "--cluster-enabled", "yes", "--cluster-config-file", "nodes.conf",
+              "--appendonly", "yes", "--cluster-announce-ip", "redis-1"]
+  redis-2:
+    image: redis:7-alpine
+    command: ["redis-server", "--cluster-enabled", "yes", "--cluster-config-file", "nodes.conf",
+              "--appendonly", "yes", "--cluster-announce-ip", "redis-2"]
+    volumes:
+      - mes_redis_2:/data
+    restart: unless-stopped
+  redis-3:
+    image: redis:7-alpine
+    command: ["redis-server", "--cluster-enabled", "yes", "--cluster-config-file", "nodes.conf",
+              "--appendonly", "yes", "--cluster-announce-ip", "redis-3"]
+    volumes:
+      - mes_redis_3:/data
+    restart: unless-stopped
+  redis-4:
+    image: redis:7-alpine
+    command: ["redis-server", "--cluster-enabled", "yes", "--cluster-config-file", "nodes.conf",
+              "--appendonly", "yes", "--cluster-announce-ip", "redis-4"]
+    volumes:
+      - mes_redis_4:/data
+    restart: unless-stopped
+  redis-5:
+    image: redis:7-alpine
+    command: ["redis-server", "--cluster-enabled", "yes", "--cluster-config-file", "nodes.conf",
+              "--appendonly", "yes", "--cluster-announce-ip", "redis-5"]
+    volumes:
+      - mes_redis_5:/data
+    restart: unless-stopped
+  redis-6:
+    image: redis:7-alpine
+    command: ["redis-server", "--cluster-enabled", "yes", "--cluster-config-file", "nodes.conf",
+              "--appendonly", "yes", "--cluster-announce-ip", "redis-6"]
+    volumes:
+      - mes_redis_6:/data
+    restart: unless-stopped
+
+  # 一次性集群初始化: 3主3从 (幂等: 已初始化则跳过)
+  redis-cluster-init:
+    image: redis:7-alpine
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        if redis-cli -h redis-1 cluster info 2>/dev/null | grep -q cluster_state:ok; then
+          echo "cluster already formed"; exit 0;
+        fi;
+        redis-cli --cluster create redis-1:6379 redis-2:6379 redis-3:6379 \
+          redis-4:6379 redis-5:6379 redis-6:6379 \
+          --cluster-replicas 1 --cluster-yes
+    depends_on:
+      - redis-1
+      - redis-2
+      - redis-3
+      - redis-4
+      - redis-5
+      - redis-6
+
+volumes:
+  mes_pg_replica:
+  mes_redis_2:
+  mes_redis_3:
+  mes_redis_4:
+  mes_redis_5:
+  mes_redis_6:

@@ -63,10 +63,10 @@
 | 服务 | 镜像 | 副本 | 端口 | 说明 |
 |------|------|------|------|------|
 | postgres-primary | 定制 PG16 | 1 | 内部 | 主库 (pg_partman + pg_cron, wal_level=replica) |
-| postgres-replica | 定制 PG16 | 1 | 内部 | 只读副本 (pg_basebackup 初始化; 4C8G 可删) |
+| postgres-replica | 定制 PG16 | 1 | 内部 | 只读副本 (pg_basebackup 初始化; **默认关闭**, 叠加 docker-compose.prod.ha.yml 开启) |
 | pgbouncer | edoburu/pgbouncer | 1 | 127.0.0.1:6432 | 连接池 (transaction 模式, 仅绑本机) |
 | redis-1 | redis:7-alpine | 1 | 内部 | Redis 单实例 (Drogon 客户端不支持 Cluster) |
-| rabbitmq-1~3 | rabbitmq:3.13-management | 3 | 内部 | RMQ 集群 (4C8G 可删 2~3) |
+| rabbitmq-1~3 | rabbitmq:3.13-management | 3 | 内部 | RMQ 集群 (默认 3 节点; 4C8G 可只留 rabbitmq-1) |
 | backend | mes-backend | 1 | 8088 (内部) | Drogon C++ 后端 (单副本) |
 | nginx | nginx:1.27-alpine | 1 | 80, 443 | 入口代理 + 静态托管 |
 | prometheus | prom/prometheus:v2.53.0 | 1 | 9090 | 指标采集 |
@@ -80,7 +80,7 @@
 | 资源 | 最低 | 推荐 | 说明 |
 |------|------|------|------|
 | CPU | 4 核 | 8 核 | 后端编译需大量 CPU; 运行时 4 核可支撑 ~3k QPS |
-| 内存 | 8 GB | 16 GB | PG+Redis+RMQ+backend 单副本 + Prom; 4C8G 建议按 §3.5.6 精简 RMQ/replica; 编译期峰值 ~6 GB |
+| 内存 | 8 GB | 16 GB | 默认已是精简形态 (Redis 单实例 + 无 PG replica) + RMQ 3 节点 + backend 单副本 + Prom; 详见 §3.5.6; 编译期峰值 ~6 GB |
 | 磁盘 | 50 GB | 100 GB SSD | Docker 镜像 + 数据卷 + 日志; SSD 对 PG 分区表查询至关重要 |
 | 网络 | 100 Mbps | 1 Gbps | IoT 数据量 + WS 长连接带宽 |
 
@@ -179,7 +179,7 @@ sudo ufw status verbose
 
 ### 3.5 系统参数调优（4 核 8G 单机）
 
-> **规格前提**：本节面向 **4C8G** 单机。完整生产集群编排（Redis 6 节点 + RMQ 3 节点 + PG 主从 + 双后端副本 + Prometheus）
+> **规格前提**：本节面向 **4C8G** 单机。完整高可用编排（Redis Cluster 6 节点 + RMQ 3 节点 + PG 主从 + 后端单副本 + Prometheus，由 `docker-compose.prod.ha.yml` 叠加）
 > 在 8G 下空闲内存就已逼近物理上限，加压必触发 OOM Killer。
 > **4C8G 推荐组合**：① 改跑「单实例精简档」——1 PostgreSQL / 1 Redis 单节点（非 cluster）/ 1 RabbitMQ / 1 backend / 1 iot / nginx，Prometheus 可选或后期独立部署；
 > ② **必须给每个容器设内存上限**（见 3.5.6，compose 默认无上限）；③ 开 2G swap 作安全垫。正式 GA 压测仍建议 ≥8C16G（见性能验证章节）。
@@ -268,22 +268,33 @@ EOF
 sudo systemctl restart docker
 ```
 
-#### 3.5.6 容器内存上限（4C8G 精简档，必设）
+#### 3.5.6 容器内存上限（4C8G 必设）与高可用形态
 
 > 生产 compose **默认未设任何内存上限**，4C8G 下任一服务吃满即 OOM。
 > 注意：用 `docker compose up`（非 Swarm）时，`deploy.resources.limits` **不生效**，必须用 `mem_limit` 键。
-> Redis **已为单实例**（prod compose 不再含 Cluster）；如需进一步精简，可删掉 `rabbitmq-2~3` 与 `postgres-replica`（见下方说明）。
+> Redis **默认单实例**（基础文件 `docker-compose.prod.yml` 仅含 `redis-1`）；PG 只读副本 **默认关闭**（已抽到 `docker-compose.prod.ha.yml`）。
 
-在 `docker-compose.prod.yml` 各 service 下手动加（示例）：
+**高可用是可配置的，不是删除的**
+
+- **默认**（仅 `docker-compose.prod.yml`）：Redis 单实例 + 无 PG 副本 + RMQ 3 节点 → 适合 4C8G 起步。
+- **需要高可用时叠加** `docker-compose.prod.ha.yml`：
+  ```bash
+  docker compose -f docker-compose.prod.yml -f docker-compose.prod.ha.yml up -d
+  ```
+  叠加层会开启：PG 只读副本 `postgres-replica`（读写分离）、Redis Cluster（3 主 3 从）。
+
+> ⚠ **Redis Cluster 已知限制**：后端当前用 Drogon 内置 hiredis **单节点**客户端，不支持 Cluster 的 `MOVED/ASK` 重定向。一旦开启 Redis Cluster，约 2/3 的 key 会因槽位落在其他节点而读写出错。**在后端升级为集群客户端之前，建议保持 Redis 单实例**——即不叠加 `ha.yml`，或只用其中的 PG 副本部分（可临时注释掉 `ha.yml` 里的 `redis-*` 段）。
+
+**容器内存上限**：在各 service 下手动加 `mem_limit`（示例）：
 
 ```yaml
 services:
   postgres-primary:
     mem_limit: 2g
-  redis-1:            # 已为单实例
+  redis-1:            # 单实例
     mem_limit: 1g
     # command 已含限制: --maxmemory 768mb --maxmemory-policy allkeys-lru
-  rabbitmq-1:         # 如需精简可删 rabbitmq-2~3
+  rabbitmq-1:         # 4C8G 想再省可手动删 rabbitmq-2~3 只留单节点
     mem_limit: 1g
   pgbouncer:
     mem_limit: 256m
@@ -295,11 +306,7 @@ services:
     mem_limit: 128m
   prometheus:         # 可选，建议后期独立或关闭
     mem_limit: 512m
-  # 4C8G 进一步精简可删除: rabbitmq-2、rabbitmq-3、postgres-replica
 ```
-
-> **删了 `postgres-replica` 的注意**：后端配置里的 `MES_PG_RO_DSN`（读写分离只读副本）会指向已删除的 `postgres-replica`。
-> 单实例档下请在生产配置文件 `config-prod/drogon_config.json` 中把只读 DSN 改指 `postgres-primary`，否则只读查询会失败。
 
 | 服务 | 内存上限 | 说明 |
 |------|---------|------|
@@ -312,7 +319,7 @@ services:
 | nginx | 128m | |
 | prometheus（可选） | 512m | 索引常驻，建议独立部署 |
 
-**4C8G 精简档**（删 `rabbitmq-2~3` 与 `postgres-replica` 后）合计约 **5.5–6.5G**，为 OS / 文件系统缓存 / swap 余量留出 1.5–2.5G，避免无谓 OOM。默认完整档（RMQ 3 节点 + PG replica）需 ≥8C16G。
+**4C8G 内存预算**：默认精简档（Redis 单实例 + 无 replica + RMQ 3 节点）合计约 **5.5–6.5G**，为 OS / 文件系统缓存 / swap 余量留出 1.5–2.5G。若把 RMQ 删到单节点可再省 ~2G。开启 PG 副本会额外占 ~1.5–2G，此时建议 ≥8C16G。
 
 ---
 
@@ -551,17 +558,19 @@ chmod 600 mes.key
 
 ## 7. 首次启动与数据库迁移
 
-### 7.1 首次启动 (不含 replica)
+### 7.1 首次启动（默认精简形态）
 
-首次启动时 **不启动 postgres-replica**, 因为 replica 需要 pg_basebackup 从 primary 同步数据。
+默认 `docker-compose.prod.yml` 已是精简形态：**Redis 单实例、无 PG 副本、RMQ 3 节点**。直接 `up` 即可，无需像旧版那样单独挑服务或等集群初始化。
 
 ```bash
 cd /opt/mes/deploy/compose
 
-# 单独启动核心服务 (Redis 已为单实例, 不再需要 redis-2~6 与 redis-cluster-init)
-docker compose -f docker-compose.prod.yml up -d \
-    postgres-primary pgbouncer redis-1 \
-    rabbitmq-1 rabbitmq-2 rabbitmq-3
+# 默认精简形态启动 (Redis 单实例 + 无 replica)
+docker compose -f docker-compose.prod.yml up -d
+
+# 如需开启高可用 (PG 副本 + Redis Cluster), 叠加 ha 层:
+# docker compose -f docker-compose.prod.yml -f docker-compose.prod.ha.yml up -d
+# ⚠ 见 §3.5.6: Redis Cluster 需后端集群客户端支持, 当前建议保持单实例。
 
 # 等待 PG 健康
 until docker compose -f docker-compose.prod.yml exec -T postgres-primary \
@@ -569,7 +578,7 @@ until docker compose -f docker-compose.prod.yml exec -T postgres-primary \
     echo "waiting for postgres..."; sleep 3
 done
 
-# 等待 Redis 就绪 (单实例, 非 Cluster)
+# 等待 Redis 就绪 (单实例)
 until docker compose -f docker-compose.prod.yml exec -T redis-1 \
     redis-cli -h redis-1 ping 2>/dev/null | grep -q PONG; do
     echo "waiting for redis..."; sleep 3
@@ -595,8 +604,8 @@ docker compose -f docker-compose.prod.yml exec -T postgres-primary bash -c '
     && touch /tmp/replica_data/standby.signal
 '
 
-# 启动 replica
-docker compose -f docker-compose.prod.yml up -d postgres-replica
+# 启动 replica (需叠加 ha 层, 因为 postgres-replica 定义在 docker-compose.prod.ha.yml)
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.ha.yml up -d postgres-replica
 ```
 
 > **注意**: `init_replica.sh` 需要在 primary 上有复制权限。PG16 默认使用 `mes` 账号, `POSTGRES_HOST_AUTH_METHOD=md5` 允许流复制。如遇权限问题, 在 primary 上执行:
