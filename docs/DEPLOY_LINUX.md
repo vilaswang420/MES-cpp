@@ -38,15 +38,15 @@
      (React SPA)   dashboard/   │
                     (Vue3)      │
                           ┌─────▼─────┐
-                          │ backend   │ ×2 副本
+                          │ backend   │ 单副本
                           │ (Drogon)  │ :8088
                           └─────┬─────┘
                   ┌─────────────┼─────────────┐
                   │             │             │
            ┌──────▼──┐  ┌──────▼────┐  ┌─────▼─────┐
            │PgBouncer│  │ Redis     │  │ RabbitMQ  │
-           │ :6432   │  │ Cluster   │  │ Cluster   │
-           │txn mode │  │ 3主3从    │  │ 3节点     │
+           │ :6432   │  │ 单实例    │  │ 3节点     │
+           │txn mode │  │           │  │ (quorum)  │
            └──────┬──┘  └───────────┘  └───────────┘
                   │
            ┌──────▼──────┐
@@ -63,12 +63,11 @@
 | 服务 | 镜像 | 副本 | 端口 | 说明 |
 |------|------|------|------|------|
 | postgres-primary | 定制 PG16 | 1 | 内部 | 主库 (pg_partman + pg_cron, wal_level=replica) |
-| postgres-replica | 定制 PG16 | 1 | 内部 | 只读副本 (pg_basebackup 初始化) |
-| pgbouncer | edoburu/pgbouncer | 1 | 6432 | 连接池 (transaction 模式) |
-| redis-1~6 | redis:7-alpine | 6 | 内部 | Redis Cluster 3主3从 |
-| redis-cluster-init | redis:7-alpine | 1 (一次性) | - | 集群初始化 |
-| rabbitmq-1~3 | rabbitmq:3.13-management | 3 | 内部 | RMQ 集群 |
-| backend | mes-backend | 2 | 8088 (内部) | Drogon C++ 后端 |
+| postgres-replica | 定制 PG16 | 1 | 内部 | 只读副本 (pg_basebackup 初始化; 4C8G 可删) |
+| pgbouncer | edoburu/pgbouncer | 1 | 127.0.0.1:6432 | 连接池 (transaction 模式, 仅绑本机) |
+| redis-1 | redis:7-alpine | 1 | 内部 | Redis 单实例 (Drogon 客户端不支持 Cluster) |
+| rabbitmq-1~3 | rabbitmq:3.13-management | 3 | 内部 | RMQ 集群 (4C8G 可删 2~3) |
+| backend | mes-backend | 1 | 8088 (内部) | Drogon C++ 后端 (单副本) |
 | nginx | nginx:1.27-alpine | 1 | 80, 443 | 入口代理 + 静态托管 |
 | prometheus | prom/prometheus:v2.53.0 | 1 | 9090 | 指标采集 |
 
@@ -81,7 +80,7 @@
 | 资源 | 最低 | 推荐 | 说明 |
 |------|------|------|------|
 | CPU | 4 核 | 8 核 | 后端编译需大量 CPU; 运行时 4 核可支撑 ~3k QPS |
-| 内存 | 8 GB | 16 GB | PG+Redis+RMQ+backend 双副本 + Prom; 编译期峰值 ~6 GB |
+| 内存 | 8 GB | 16 GB | PG+Redis+RMQ+backend 单副本 + Prom; 4C8G 建议按 §3.5.6 精简 RMQ/replica; 编译期峰值 ~6 GB |
 | 磁盘 | 50 GB | 100 GB SSD | Docker 镜像 + 数据卷 + 日志; SSD 对 PG 分区表查询至关重要 |
 | 网络 | 100 Mbps | 1 Gbps | IoT 数据量 + WS 长连接带宽 |
 
@@ -269,11 +268,11 @@ EOF
 sudo systemctl restart docker
 ```
 
-#### 3.5.6 容器内存上限（4C8G 单实例档，必设）
+#### 3.5.6 容器内存上限（4C8G 精简档，必设）
 
-> 生产 compose 默认 **未设任何内存上限**，4C8G 下任一服务吃满即 OOM。
+> 生产 compose **默认未设任何内存上限**，4C8G 下任一服务吃满即 OOM。
 > 注意：用 `docker compose up`（非 Swarm）时，`deploy.resources.limits` **不生效**，必须用 `mem_limit` 键。
-> 请在 `docker-compose.prod.yml` 里手动为每个 service 加 `mem_limit`（单实例档需先删掉集群/副本服务）。
+> Redis **已为单实例**（prod compose 不再含 Cluster）；如需进一步精简，可删掉 `rabbitmq-2~3` 与 `postgres-replica`（见下方说明）。
 
 在 `docker-compose.prod.yml` 各 service 下手动加（示例）：
 
@@ -281,23 +280,22 @@ sudo systemctl restart docker
 services:
   postgres-primary:
     mem_limit: 2g
-  redis-1:            # 单实例档只留 1 个 redis 节点，删掉 2~6 与 redis-cluster-init
+  redis-1:            # 已为单实例
     mem_limit: 1g
-    # 同时把其 command 改为单节点并限制 maxmemory 防写满：
-    # command: ["redis-server", "--appendonly", "yes", "--maxmemory", "768mb", "--maxmemory-policy", "allkeys-lru"]
-  rabbitmq-1:         # 单实例档只留 1 个，删掉 rabbitmq-2~3
+    # command 已含限制: --maxmemory 768mb --maxmemory-policy allkeys-lru
+  rabbitmq-1:         # 如需精简可删 rabbitmq-2~3
     mem_limit: 1g
   pgbouncer:
     mem_limit: 256m
   backend:
-    mem_limit: 512m   # 单实例档；保留 2 副本则改 1g，且去掉 deploy.replicas
+    mem_limit: 512m   # 单副本
   iot:
     mem_limit: 512m
   nginx:
     mem_limit: 128m
   prometheus:         # 可选，建议后期独立或关闭
     mem_limit: 512m
-  # 单实例档另需删除：redis-2~6、redis-cluster-init、rabbitmq-2~3、postgres-replica
+  # 4C8G 进一步精简可删除: rabbitmq-2、rabbitmq-3、postgres-replica
 ```
 
 > **删了 `postgres-replica` 的注意**：后端配置里的 `MES_PG_RO_DSN`（读写分离只读副本）会指向已删除的 `postgres-replica`。
@@ -306,15 +304,15 @@ services:
 | 服务 | 内存上限 | 说明 |
 |------|---------|------|
 | postgres-primary | 2g | 含 shared_buffers，占大头 |
-| redis（单节点） | 1g | 另设 `maxmemory 768mb` + `allkeys-lru` 防写满 |
-| rabbitmq（单节点） | 1g | Erlang VM 基线较高 |
+| redis（单节点） | 1g | 已设 `maxmemory 768mb` + `allkeys-lru` 防写满 |
+| rabbitmq（单节点） | 1g | Erlang VM 基线较高；3 节点则各 1g |
 | pgbouncer | 256m | |
-| backend | 512m（2 副本则 1g） | C++ Drogon 轻量 |
+| backend | 512m | C++ Drogon 轻量（单副本） |
 | iot | 512m | |
 | nginx | 128m | |
 | prometheus（可选） | 512m | 索引常驻，建议独立部署 |
 
-合计约 **5.5–6.5G**，为 OS / 文件系统缓存 / swap 余量留出 1.5–2.5G，避免无谓 OOM。
+**4C8G 精简档**（删 `rabbitmq-2~3` 与 `postgres-replica` 后）合计约 **5.5–6.5G**，为 OS / 文件系统缓存 / swap 余量留出 1.5–2.5G，避免无谓 OOM。默认完整档（RMQ 3 节点 + PG replica）需 ≥8C16G。
 
 ---
 
@@ -489,11 +487,40 @@ deploy/compose/
 ├── config-prod/
 │   ├── drogon_config.json        # 后端配置 (PG/Redis/JWT)
 │   └── rabbitmq.json             # MQ 连接配置
+├── config-iot/                   # IoT 采集服务配置 (必须, 否则采集链路失效)
+│   └── iot.json                  # amqp_url / backend_url / backend_pwd 等
 ├── web-dist/                     # React 静态文件
 ├── dashboard-dist/               # Vue3 静态文件
 ├── docker-compose.prod.yml       # 生产编排
 └── ...
 ```
+
+### 5.5 IoT 采集服务配置（必须）
+
+`iot` 容器只挂载 `./config-iot` 并读取其中的 `iot.json`（由 `mes-iot/src/main.cc` 解析），**不读取任何 `MES_IOT_*` 环境变量**。若 `config-iot/iot.json` 缺失，容器空挂载会 shadow 掉镜像默认配置，退化为连 `127.0.0.1` 的骨架模式，采集整条链路失效。
+
+```bash
+cd /opt/mes/deploy/compose
+mkdir -p config-iot
+
+# 从模板复制后注入生产连接串与凭证
+cp /opt/mes/mes-iot/config/iot.json config-iot/iot.json
+
+MQ_PWD="实际MQ密码"
+ADMIN_PWD="后端管理员密码"
+jq --arg amqp "amqp://mes:${MQ_PWD}@rabbitmq-1:5672/" \
+   --arg burl "http://backend:8088" \
+   --arg bpwd "$ADMIN_PWD" \
+   '.amqp_url = $amqp
+    | .backend_url = $burl
+    | .backend_pwd = $bpwd' \
+   config-iot/iot.json > config-iot/iot.json.tmp \
+   && mv config-iot/iot.json.tmp config-iot/iot.json
+
+chmod 600 config-iot/iot.json
+```
+
+> `backend_pwd` 必须与后端 `config-prod/drogon_config.json` 中的管理员账号密码一致，否则 IoT 无法从 `/api/v1/iot/devices` 拉取设备配置。其余字段（`exchange`/`routing_key`/`batch_size`/`flush_interval_ms`/`healthz_port`）保持模板默认值即可。
 
 ---
 
@@ -531,10 +558,9 @@ chmod 600 mes.key
 ```bash
 cd /opt/mes/deploy/compose
 
-# 方法: 先注释掉 prod.yml 中的 postgres-replica 服务, 或单独启动核心服务
+# 单独启动核心服务 (Redis 已为单实例, 不再需要 redis-2~6 与 redis-cluster-init)
 docker compose -f docker-compose.prod.yml up -d \
-    postgres-primary pgbouncer redis-1 redis-2 redis-3 \
-    redis-4 redis-5 redis-6 redis-cluster-init \
+    postgres-primary pgbouncer redis-1 \
     rabbitmq-1 rabbitmq-2 rabbitmq-3
 
 # 等待 PG 健康
@@ -543,10 +569,10 @@ until docker compose -f docker-compose.prod.yml exec -T postgres-primary \
     echo "waiting for postgres..."; sleep 3
 done
 
-# 等待 Redis Cluster 初始化完成
+# 等待 Redis 就绪 (单实例, 非 Cluster)
 until docker compose -f docker-compose.prod.yml exec -T redis-1 \
-    redis-cli cluster info 2>/dev/null | grep -q "cluster_state:ok"; do
-    echo "waiting for redis cluster..."; sleep 3
+    redis-cli -h redis-1 ping 2>/dev/null | grep -q PONG; do
+    echo "waiting for redis..."; sleep 3
 done
 
 # 等待 RMQ 集群就绪
@@ -628,7 +654,7 @@ SQL
 ```bash
 cd /opt/mes/deploy/compose
 
-# 启动后端 (双副本)
+# 启动后端 (单副本)
 docker compose -f docker-compose.prod.yml up -d backend
 
 # 等待后端健康
@@ -894,7 +920,7 @@ docker compose logs -f --tail=100 backend
 # 进入容器
 docker compose exec postgres-primary psql -U mes -d mes
 docker compose exec rabbitmq-1 rabbitmqctl status
-docker compose exec redis-1 redis-cli cluster info
+docker compose exec redis-1 redis-cli -h redis-1 ping   # 单实例; 查内存用 redis-cli -h redis-1 info memory
 
 # 更新镜像后重新部署
 docker compose up -d backend   # 滚动更新后端
@@ -980,7 +1006,7 @@ docker compose -f deploy/compose/docker-compose.prod.yml exec -T postgres-primar
 
 ### 12.3 Redis 持久化
 
-Redis Cluster 默认开启 AOF (`--appendonly yes`), 数据持久化到各自卷中。无需额外备份配置数据。
+Redis 单实例默认开启 AOF (`--appendonly yes`), 数据持久化到卷中。无需额外备份配置数据。
 
 ### 12.4 配置文件备份
 
@@ -1054,7 +1080,7 @@ docker compose restart backend
 | 后端报 `incorrect binary data format` | 数值绑定参数未用 SqlArg | 代码问题, 见 HANDOVER.md 踩坑 #19 |
 | Nginx 502 Bad Gateway | 后端未启动或端口不匹配 | `docker compose ps backend`; 检查 nginx.conf upstream |
 | WebSocket 连接失败 | Nginx WSS 代理配置缺失 | 检查 nginx.conf `/ws` location 有 Upgrade/Connection 头 |
-| Redis Cluster `CLUSTERDOWN` | 集群未初始化或节点宕机 | `docker compose exec redis-1 redis-cli cluster info`; 检查 redis-cluster-init 是否完成 |
+| Redis 不可用 | 单实例进程异常或 OOM 被杀 | `docker compose exec redis-1 redis-cli -h redis-1 ping`; 检查 `docker logs redis-1` 与内存上限 |
 | RabbitMQ `CONNECTION_REFUSED` | RMQ 集群未组建 | 检查 Erlang Cookie 一致; `rabbitmqctl cluster_status` |
 | PG 分区写入失败 `no partition` | pg_partman 未预建足够分区 | `SELECT partman.run_maintenance_proc();` 手动触发 |
 | 后端 OOM 或高 CPU | 连接池/线程数过大 | 降低 `connection_number` 或 `threads_num` |
@@ -1112,7 +1138,7 @@ docker compose -f deploy/compose/docker-compose.prod.yml exec postgres-primary \
 □ 11. config-prod/drogon_config.json 配置 (PG密码, JWT密钥)
 □ 12. config-prod/rabbitmq.json 配置 (MQ密码)
 □ 13. TLS 证书生成 (自签或 Let's Encrypt)
-□ 14. 中间件启动 (PG + PgBouncer + Redis Cluster + RMQ)
+□ 14. 中间件启动 (PG + PgBouncer + Redis 单实例 + RMQ)
 □ 15. 只读副本初始化 (init_replica.sh)
 □ 16. 数据库迁移执行成功 (migrate up)
 □ 17. 分区和定时任务验证 (partman + cron)
@@ -1135,8 +1161,8 @@ docker compose -f deploy/compose/docker-compose.prod.yml exec postgres-primary \
 | 80 | Nginx | 是 | HTTP → 301 HTTPS |
 | 443 | Nginx | 是 | HTTPS + WSS 入口 |
 | 5432 | PostgreSQL | 否 (内部) | 主库 (通过 PgBouncer 访问) |
-| 6432 | PgBouncer | 否 (内部) | 连接池入口 |
-| 6379 | Redis | 否 (内部) | Redis Cluster 节点 |
+| 6432 | PgBouncer | 仅 127.0.0.1 | 连接池入口 (Docker 发布端口绕过 ufw, 故显式绑本机) |
+| 6379 | Redis | 否 (内部) | Redis 单实例 |
 | 5672 | RabbitMQ AMQP | 否 (内部) | 消息队列 |
 | 15672 | RabbitMQ Management | 否 (内部) | 管理界面 (需 SSH 隧道) |
 | 8088 | Backend | 否 (内部) | Drogon HTTP/WS |
