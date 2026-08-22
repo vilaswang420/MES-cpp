@@ -124,18 +124,13 @@ echo \
   $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
   sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
-sudo apt update
-sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-
-# 下载 Docker 官方 GPG key 被重置连接（GFW/网络问题）。替代方案：
-# 方案 ：用国内镜像源（推荐，最快）
+# 替代方案 ：用国内镜像源（推荐，最快）。下载 Docker 官方 GPG key 被重置连接（GFW/网络问题）。
 ## 1. 加 key（阿里云）
 curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 
 ## 2. 加仓库（阿里云）
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.aliyun.com/docker-ce/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
-## 3. 装
 sudo apt update && sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
 # 将当前用户加入 docker 组 (免 sudo)
@@ -149,10 +144,18 @@ docker compose version
 
 ### 3.3 安装 golang-migrate (数据库迁移工具)
 
+> **国内/腾讯云 VM 注意**：GitHub Releases 直连 (`objects.githubusercontent.com`) 在国内常被限速或断流，
+> 表现为 `curl: (56) Failure when receiving data from the peer` + `tar: unexpected end of file`。
+> 因此统一走 `ghproxy.net` 镜像加速，并**先下载到本地文件、再解包**（避免下载失败时把空流直接喂给 `tar`）。
+> 如果你的环境能直连 GitHub，把 `MIGRATE_URL` 换回官方地址即可。
+
 ```bash
-MIGRATE_VERSION=4.17.1
-curl -L "https://github.com/golang-migrate/migrate/releases/download/v${MIGRATE_VERSION}/migrate.linux-amd64.tar.gz" \
-    | sudo tar xz -C /usr/local/bin migrate
+MIGRATE_VERSION=4.18.1
+MIGRATE_URL="https://ghproxy.net/https://github.com/golang-migrate/migrate/releases/download/v${MIGRATE_VERSION}/migrate.linux-amd64.tar.gz"
+
+# 先下载（带重试），再解包；-f 让 HTTP 错误也会中止而非静默
+curl -fL --retry 3 --retry-all-errors --connect-timeout 60 -o /tmp/migrate.tar.gz "$MIGRATE_URL"
+sudo tar xz -C /usr/local/bin -f /tmp/migrate.tar.gz migrate
 sudo chmod +x /usr/local/bin/migrate
 migrate -version
 ```
@@ -175,32 +178,143 @@ sudo ufw status verbose
 > ssh -L 15672:localhost:15672 -L 5432:localhost:5432 user@server
 > ```
 
-### 3.5 系统参数调优
+### 3.5 系统参数调优（4 核 8G 单机）
+
+> **规格前提**：本节面向 **4C8G** 单机。完整生产集群编排（Redis 6 节点 + RMQ 3 节点 + PG 主从 + 双后端副本 + Prometheus）
+> 在 8G 下空闲内存就已逼近物理上限，加压必触发 OOM Killer。
+> **4C8G 推荐组合**：① 改跑「单实例精简档」——1 PostgreSQL / 1 Redis 单节点（非 cluster）/ 1 RabbitMQ / 1 backend / 1 iot / nginx，Prometheus 可选或后期独立部署；
+> ② **必须给每个容器设内存上限**（见 3.5.6，compose 默认无上限）；③ 开 2G swap 作安全垫。正式 GA 压测仍建议 ≥8C16G（见性能验证章节）。
+
+#### 3.5.1 文件描述符与进程数
 
 ```bash
-# 文件描述符上限 (WS 长连接 + DB 连接池)
-echo "* soft nofile 65536" | sudo tee -a /etc/security/limits.conf
-echo "* hard nofile 65536" | sudo tee -a /etc/security/limits.conf
-## 2C2G 适配版
-echo "* soft nofile 30000" | sudo tee -a /etc/security/limits.conf
-echo "* hard nofile 30000" | sudo tee -a /etc/security/limits.conf
-
-# 内核参数
-sudo tee -a /etc/sysctl.conf <<EOF
-net.core.somaxconn = 65535
-net.ipv4.tcp_max_syn_backlog = 65535
-net.ipv4.ip_local_port_range = 10000 65535
-vm.overcommit_memory = 1
+sudo tee -a /etc/security/limits.conf <<'EOF'
+* soft nofile 65536
+* hard nofile 65536
+* soft nproc  65535
+* hard nproc  65535
 EOF
-sudo sysctl -p
-## 2C2G 适配版
-sudo tee -a /etc/sysctl.conf <<EOF
-net.core.somaxconn = 4096
-net.ipv4.tcp_max_syn_backlog = 4096
+ulimit -n 65536   # 当前 shell 立即生效（重登终端后全局生效）
+```
+
+#### 3.5.2 内核参数（sysctl，4C8G 推荐值）
+
+```bash
+sudo tee -a /etc/sysctl.conf <<'EOF'
+# 网络队列与端口范围（WS 长连接 + 容器间大量短连接）
+net.core.somaxconn = 65535
+net.core.netdev_max_backlog = 65535
+net.ipv4.tcp_max_syn_backlog = 65535
+net.ipv4.ip_local_port_range = 1024 65535
+net.ipv4.tcp_tw_reuse = 1
+# 内存与 OOM：允许适度 swap 兜底；Redis 官方建议 overcommit=1
+vm.swappiness = 10
 vm.overcommit_memory = 1
+vm.dirty_background_ratio = 5
+vm.dirty_ratio = 10
+# PID 上限（Docker 会创建大量进程）
+kernel.pid_max = 65535
 EOF
 sudo sysctl -p
 ```
+
+#### 3.5.3 关闭透明大页 THP（Redis / PostgreSQL 必需）
+
+THP 会导致数据库/缓存出现周期性延迟毛刺，必须关闭并持久化：
+
+```bash
+# 立即生效
+echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
+echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag
+
+# 持久化（重启后仍生效）
+sudo tee /etc/systemd/system/disable-thp.service <<'EOF'
+[Unit]
+Description=Disable Transparent Huge Pages
+After=sysinit.target
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c "echo never > /sys/kernel/mm/transparent_hugepage/enabled && echo never > /sys/kernel/mm/transparent_hugepage/defrag"
+RemainAfterExit=yes
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl enable --now disable-thp.service
+```
+
+#### 3.5.4 Swap 安全垫（4C8G 建议 2G）
+
+```bash
+sudo fallocate -l 2G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=2048
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
+
+#### 3.5.5 Docker daemon 调优
+
+日志轮转防止容器日志撑爆磁盘，且 dockerd 重启时不杀容器。整段复制执行：
+
+```bash
+sudo mkdir -p /etc/docker
+sudo tee /etc/docker/daemon.json <<'EOF'
+{
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "10m", "max-file": "3" },
+  "live-restore": true,
+  "storage-driver": "overlay2"
+}
+EOF
+sudo systemctl restart docker
+```
+
+#### 3.5.6 容器内存上限（4C8G 单实例档，必设）
+
+> 生产 compose 默认 **未设任何内存上限**，4C8G 下任一服务吃满即 OOM。
+> 注意：用 `docker compose up`（非 Swarm）时，`deploy.resources.limits` **不生效**，必须用 `mem_limit` 键。
+> 请在 `docker-compose.prod.yml` 里手动为每个 service 加 `mem_limit`（单实例档需先删掉集群/副本服务）。
+
+在 `docker-compose.prod.yml` 各 service 下手动加（示例）：
+
+```yaml
+services:
+  postgres-primary:
+    mem_limit: 2g
+  redis-1:            # 单实例档只留 1 个 redis 节点，删掉 2~6 与 redis-cluster-init
+    mem_limit: 1g
+    # 同时把其 command 改为单节点并限制 maxmemory 防写满：
+    # command: ["redis-server", "--appendonly", "yes", "--maxmemory", "768mb", "--maxmemory-policy", "allkeys-lru"]
+  rabbitmq-1:         # 单实例档只留 1 个，删掉 rabbitmq-2~3
+    mem_limit: 1g
+  pgbouncer:
+    mem_limit: 256m
+  backend:
+    mem_limit: 512m   # 单实例档；保留 2 副本则改 1g，且去掉 deploy.replicas
+  iot:
+    mem_limit: 512m
+  nginx:
+    mem_limit: 128m
+  prometheus:         # 可选，建议后期独立或关闭
+    mem_limit: 512m
+  # 单实例档另需删除：redis-2~6、redis-cluster-init、rabbitmq-2~3、postgres-replica
+```
+
+> **删了 `postgres-replica` 的注意**：后端配置里的 `MES_PG_RO_DSN`（读写分离只读副本）会指向已删除的 `postgres-replica`。
+> 单实例档下请在生产配置文件 `config-prod/drogon_config.json` 中把只读 DSN 改指 `postgres-primary`，否则只读查询会失败。
+
+| 服务 | 内存上限 | 说明 |
+|------|---------|------|
+| postgres-primary | 2g | 含 shared_buffers，占大头 |
+| redis（单节点） | 1g | 另设 `maxmemory 768mb` + `allkeys-lru` 防写满 |
+| rabbitmq（单节点） | 1g | Erlang VM 基线较高 |
+| pgbouncer | 256m | |
+| backend | 512m（2 副本则 1g） | C++ Drogon 轻量 |
+| iot | 512m | |
+| nginx | 128m | |
+| prometheus（可选） | 512m | 索引常驻，建议独立部署 |
+
+合计约 **5.5–6.5G**，为 OS / 文件系统缓存 / swap 余量留出 1.5–2.5G，避免无谓 OOM。
 
 ---
 
@@ -208,11 +322,23 @@ sudo sysctl -p
 
 ### 4.1 克隆仓库
 
+> **国内/腾讯云 VM 注意**：GitHub 直连克隆常被断流（表现为 `GnuTLS recv error (-110): The TLS connection was non-properly terminated`）。
+> 因此走 `ghproxy.net` 镜像加速，并用 `--depth 1` 浅克隆把传输量压到最小（本仓库含 vcpkg，全量克隆极易超时）。
+> 若后续确实需要完整提交历史，在仓库内执行 `git fetch --unshallow` 即可。
+
 ```bash
 sudo mkdir -p /opt/mes
 sudo chown $USER:$USER /opt/mes
-cd /opt/mes
-git clone <仓库地址> .
+
+# 清掉上次失败可能残留的空 .git
+rm -rf /opt/mes/.git
+
+# 镜像 + 浅克隆（推荐）
+git clone --depth 1 https://ghproxy.net/https://github.com/vilaswang420/MES-cpp.git /opt/mes
+
+# 若 ghproxy 不稳定，换以下任一镜像前缀重试：
+#   git clone --depth 1 https://kgithub.com/vilaswang420/MES-cpp.git /opt/mes
+#   git clone --depth 1 https://gitclone.com/github.com/vilaswang420/MES-cpp.git /opt/mes
 ```
 
 ### 4.2 构建后端镜像
