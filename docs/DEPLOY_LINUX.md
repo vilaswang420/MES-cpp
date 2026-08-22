@@ -1,6 +1,10 @@
 # MES 制造执行系统 — Linux Ubuntu 24.04 部署完整手册
 
-> 版本: 1.0 | 日期: 2026-08-15 | 适用: MES M3 定稿 (docker-compose.prod.yml)
+> 版本: 1.1 | 日期: 2026-08-22 | 适用: MES M3 定稿 (docker-compose.prod.yml)
+>
+> v1.1 更新: 补充国内服务器构建配置 (Docker 镜像加速/vcpkg GitHub 代理/GCC 14);
+> 修正 PgBouncer 端口/PG 密码加密方式/Redis 集群配置/RabbitMQ 集群参数;
+> 新增 mes-iot 镜像构建说明和故障排查条目。
 
 ---
 
@@ -38,15 +42,15 @@
      (React SPA)   dashboard/   │
                     (Vue3)      │
                           ┌─────▼─────┐
-                          │ backend   │ 单副本
+                          │ backend   │ ×2 副本
                           │ (Drogon)  │ :8088
                           └─────┬─────┘
                   ┌─────────────┼─────────────┐
                   │             │             │
            ┌──────▼──┐  ┌──────▼────┐  ┌─────▼─────┐
            │PgBouncer│  │ Redis     │  │ RabbitMQ  │
-           │ :6432   │  │ 单实例    │  │ 3节点     │
-           │txn mode │  │           │  │ (quorum)  │
+           │ :6432   │  │ Cluster   │  │ Cluster   │
+           │txn mode │  │ 3主3从    │  │ 3节点     │
            └──────┬──┘  └───────────┘  └───────────┘
                   │
            ┌──────▼──────┐
@@ -63,11 +67,12 @@
 | 服务 | 镜像 | 副本 | 端口 | 说明 |
 |------|------|------|------|------|
 | postgres-primary | 定制 PG16 | 1 | 内部 | 主库 (pg_partman + pg_cron, wal_level=replica) |
-| postgres-replica | 定制 PG16 | 1 | 内部 | 只读副本 / 热备 (pg_basebackup 初始化; **默认关闭**, 叠加 docker-compose.prod.ha-pg.yml 开启) |
-| pgbouncer | edoburu/pgbouncer | 1 | 127.0.0.1:6432 | 连接池 (transaction 模式, 仅绑本机) |
-| redis-1 | redis:7-alpine | 1 | 内部 | Redis 单实例 (Drogon 客户端不支持 Cluster) |
-| rabbitmq-1~3 | rabbitmq:3.13-management | 3 | 内部 | RMQ 集群 (默认 3 节点; 4C8G 可只留 rabbitmq-1) |
-| backend | mes-backend | 1 | 8088 (内部) | Drogon C++ 后端 (单副本) |
+| postgres-replica | 定制 PG16 | 1 | 内部 | 只读副本 (pg_basebackup 初始化) |
+| pgbouncer | edoburu/pgbouncer | 1 | 6432 | 连接池 (transaction 模式) |
+| redis-1~6 | redis:7-alpine | 6 | 内部 | Redis Cluster 3主3从 |
+| redis-cluster-init | redis:7-alpine | 1 (一次性) | - | 集群初始化 |
+| rabbitmq-1~3 | rabbitmq:3.13-management | 3 | 内部 | RMQ 集群 |
+| backend | mes-backend | 2 | 8088 (内部) | Drogon C++ 后端 |
 | nginx | nginx:1.27-alpine | 1 | 80, 443 | 入口代理 + 静态托管 |
 | prometheus | prom/prometheus:v2.53.0 | 1 | 9090 | 指标采集 |
 
@@ -80,7 +85,7 @@
 | 资源 | 最低 | 推荐 | 说明 |
 |------|------|------|------|
 | CPU | 4 核 | 8 核 | 后端编译需大量 CPU; 运行时 4 核可支撑 ~3k QPS |
-| 内存 | 8 GB | 16 GB | 默认已是精简形态 (Redis 单实例 + 无 PG replica) + RMQ 3 节点 + backend 单副本 + Prom; 详见 §3.5.6; 编译期峰值 ~6 GB |
+| 内存 | 8 GB | 16 GB | PG+Redis+RMQ+backend 双副本 + Prom; 编译期峰值 ~6 GB |
 | 磁盘 | 50 GB | 100 GB SSD | Docker 镜像 + 数据卷 + 日志; SSD 对 PG 分区表查询至关重要 |
 | 网络 | 100 Mbps | 1 Gbps | IoT 数据量 + WS 长连接带宽 |
 
@@ -123,13 +128,18 @@ echo \
   $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
   sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
-# 替代方案 ：用国内镜像源（推荐，最快）。下载 Docker 官方 GPG key 被重置连接（GFW/网络问题）。
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# 下载 Docker 官方 GPG key 被重置连接（GFW/网络问题）。替代方案：
+# 方案 ：用国内镜像源（推荐，最快）
 ## 1. 加 key（阿里云）
 curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 
 ## 2. 加仓库（阿里云）
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.aliyun.com/docker-ce/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
+## 3. 装
 sudo apt update && sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
 # 将当前用户加入 docker 组 (免 sudo)
@@ -143,18 +153,10 @@ docker compose version
 
 ### 3.3 安装 golang-migrate (数据库迁移工具)
 
-> **国内/腾讯云 VM 注意**：GitHub Releases 直连 (`objects.githubusercontent.com`) 在国内常被限速或断流，
-> 表现为 `curl: (56) Failure when receiving data from the peer` + `tar: unexpected end of file`。
-> 因此统一走 `ghproxy.net` 镜像加速，并**先下载到本地文件、再解包**（避免下载失败时把空流直接喂给 `tar`）。
-> 如果你的环境能直连 GitHub，把 `MIGRATE_URL` 换回官方地址即可。
-
 ```bash
-MIGRATE_VERSION=4.18.1
-MIGRATE_URL="https://ghproxy.net/https://github.com/golang-migrate/migrate/releases/download/v${MIGRATE_VERSION}/migrate.linux-amd64.tar.gz"
-
-# 先下载（带重试），再解包；-f 让 HTTP 错误也会中止而非静默
-curl -fL --retry 3 --retry-all-errors --connect-timeout 60 -o /tmp/migrate.tar.gz "$MIGRATE_URL"
-sudo tar xz -C /usr/local/bin -f /tmp/migrate.tar.gz migrate
+MIGRATE_VERSION=4.17.1
+curl -L "https://github.com/golang-migrate/migrate/releases/download/v${MIGRATE_VERSION}/migrate.linux-amd64.tar.gz" \
+    | sudo tar xz -C /usr/local/bin migrate
 sudo chmod +x /usr/local/bin/migrate
 migrate -version
 ```
@@ -177,155 +179,32 @@ sudo ufw status verbose
 > ssh -L 15672:localhost:15672 -L 5432:localhost:5432 user@server
 > ```
 
-### 3.5 系统参数调优（4 核 8G 单机）
-
-> **规格前提**：本节面向 **4C8G** 单机。高可用为可配置叠加层：PG 只读副本（叠加 `docker-compose.prod.ha-pg.yml`）、Redis Cluster（叠加 `docker-compose.prod.ha-redis.yml`，**当前后端不支持，暂不可用**）。默认精简档 = Redis 单实例 + 无 PG 副本 + RMQ 3 节点 + 后端单副本 + Prometheus。
-> 在 8G 下空闲内存就已逼近物理上限，加压必触发 OOM Killer。
-> **4C8G 推荐组合**：① 改跑「单实例精简档」——1 PostgreSQL / 1 Redis 单节点（非 cluster）/ 1 RabbitMQ / 1 backend / 1 iot / nginx，Prometheus 可选或后期独立部署；
-> ② **必须给每个容器设内存上限**（见 3.5.6，compose 默认无上限）；③ 开 2G swap 作安全垫。正式 GA 压测仍建议 ≥8C16G（见性能验证章节）。
-
-#### 3.5.1 文件描述符与进程数
+### 3.5 系统参数调优
 
 ```bash
-sudo tee -a /etc/security/limits.conf <<'EOF'
-* soft nofile 65536
-* hard nofile 65536
-* soft nproc  65535
-* hard nproc  65535
-EOF
-ulimit -n 65536   # 当前 shell 立即生效（重登终端后全局生效）
-```
+# 文件描述符上限 (WS 长连接 + DB 连接池)
+echo "* soft nofile 65536" | sudo tee -a /etc/security/limits.conf
+echo "* hard nofile 65536" | sudo tee -a /etc/security/limits.conf
+## 2C2G 适配版
+echo "* soft nofile 30000" | sudo tee -a /etc/security/limits.conf
+echo "* hard nofile 30000" | sudo tee -a /etc/security/limits.conf
 
-#### 3.5.2 内核参数（sysctl，4C8G 推荐值）
-
-```bash
-sudo tee -a /etc/sysctl.conf <<'EOF'
-# 网络队列与端口范围（WS 长连接 + 容器间大量短连接）
+# 内核参数
+sudo tee -a /etc/sysctl.conf <<EOF
 net.core.somaxconn = 65535
-net.core.netdev_max_backlog = 65535
 net.ipv4.tcp_max_syn_backlog = 65535
-net.ipv4.ip_local_port_range = 1024 65535
-net.ipv4.tcp_tw_reuse = 1
-# 内存与 OOM：允许适度 swap 兜底；Redis 官方建议 overcommit=1
-vm.swappiness = 10
+net.ipv4.ip_local_port_range = 10000 65535
 vm.overcommit_memory = 1
-vm.dirty_background_ratio = 5
-vm.dirty_ratio = 10
-# PID 上限（Docker 会创建大量进程）
-kernel.pid_max = 65535
+EOF
+sudo sysctl -p
+## 2C2G 适配版
+sudo tee -a /etc/sysctl.conf <<EOF
+net.core.somaxconn = 4096
+net.ipv4.tcp_max_syn_backlog = 4096
+vm.overcommit_memory = 1
 EOF
 sudo sysctl -p
 ```
-
-#### 3.5.3 关闭透明大页 THP（Redis / PostgreSQL 必需）
-
-THP 会导致数据库/缓存出现周期性延迟毛刺，必须关闭并持久化：
-
-```bash
-# 立即生效
-echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
-echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag
-
-# 持久化（重启后仍生效）
-sudo tee /etc/systemd/system/disable-thp.service <<'EOF'
-[Unit]
-Description=Disable Transparent Huge Pages
-After=sysinit.target
-[Service]
-Type=oneshot
-ExecStart=/bin/sh -c "echo never > /sys/kernel/mm/transparent_hugepage/enabled && echo never > /sys/kernel/mm/transparent_hugepage/defrag"
-RemainAfterExit=yes
-[Install]
-WantedBy=multi-user.target
-EOF
-sudo systemctl enable --now disable-thp.service
-```
-
-#### 3.5.4 Swap 安全垫（4C8G 建议 2G）
-
-```bash
-sudo fallocate -l 2G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=2048
-sudo chmod 600 /swapfile
-sudo mkswap /swapfile
-sudo swapon /swapfile
-echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
-```
-
-#### 3.5.5 Docker daemon 调优
-
-日志轮转防止容器日志撑爆磁盘，且 dockerd 重启时不杀容器。整段复制执行：
-
-```bash
-sudo mkdir -p /etc/docker
-sudo tee /etc/docker/daemon.json <<'EOF'
-{
-  "log-driver": "json-file",
-  "log-opts": { "max-size": "10m", "max-file": "3" },
-  "live-restore": true,
-  "storage-driver": "overlay2"
-}
-EOF
-sudo systemctl restart docker
-```
-
-#### 3.5.6 容器内存上限（4C8G 必设）与高可用形态
-
-> 生产 compose **默认未设任何内存上限**，4C8G 下任一服务吃满即 OOM。
-> 注意：用 `docker compose up`（非 Swarm）时，`deploy.resources.limits` **不生效**，必须用 `mem_limit` 键。
-> Redis **默认单实例**（基础文件 `docker-compose.prod.yml` 仅含 `redis-1`）；PG 只读副本 **默认关闭**（已抽到 `docker-compose.prod.ha-pg.yml`）。
-
-**高可用是可配置的，不是删除的** —— 拆成两个独立叠加层，按需取用：
-
-- **默认**（仅 `docker-compose.prod.yml`）：Redis 单实例 + 无 PG 副本 + RMQ 3 节点 → 适合 4C8G 起步。
-- **`docker-compose.prod.ha-pg.yml`**（PG 只读副本 / 热备，立即可用）：
-  ```bash
-  docker compose -f docker-compose.prod.yml -f docker-compose.prod.ha-pg.yml up -d
-  ```
-  > ⚠ **副本当前只是热备，不是读写分离**。后端仅有一个 default db_client（指向 pgbouncer），没有任何命名 RO 客户端，也没有读写分离逻辑去查 `postgres-replica`。叠加本层后副本以 hot_standby 运行但**不会被任何只读查询使用**；故障时可手动 `promote` 提升为主库。真正的读写分流需后端新增 RO db_client 并实现分流逻辑后才生效（详见 `docker-compose.prod.ha-pg.yml` 文件头注释）。
-- **`docker-compose.prod.ha-redis.yml`**（Redis Cluster 3 主 3 从，**暂不可用 ⛔**）：
-  ```bash
-  # 当前不要叠加！后端 hiredis 单节点客户端不支持 Cluster MOVED/ASK 重定向，
-  # 开启后约 2/3 的 key 会读写出错。须待后端升级为集群客户端后再用。
-  # docker compose -f docker-compose.prod.yml -f docker-compose.prod.ha-redis.yml up -d
-  ```
-
-> ⚠ **Redis Cluster 已知限制**：后端当前用 Drogon 内置 hiredis **单节点**客户端，不支持 Cluster 的 `MOVED/ASK` 重定向。一旦开启 Redis Cluster，约 2/3 的 key 会因槽位落在其他节点而读写出错。**在后端升级为集群客户端之前，建议保持 Redis 单实例**——即不叠加 `docker-compose.prod.ha-redis.yml`。
-
-**容器内存上限**：在各 service 下手动加 `mem_limit`（示例）：
-
-```yaml
-services:
-  postgres-primary:
-    mem_limit: 2g
-  redis-1:            # 单实例
-    mem_limit: 1g
-    # command 已含限制: --maxmemory 768mb --maxmemory-policy allkeys-lru
-  rabbitmq-1:         # 4C8G 想再省可手动删 rabbitmq-2~3 只留单节点
-    mem_limit: 1g
-  pgbouncer:
-    mem_limit: 256m
-  backend:
-    mem_limit: 512m   # 单副本
-  iot:
-    mem_limit: 512m
-  nginx:
-    mem_limit: 128m
-  prometheus:         # 可选，建议后期独立或关闭
-    mem_limit: 512m
-```
-
-| 服务 | 内存上限 | 说明 |
-|------|---------|------|
-| postgres-primary | 2g | 含 shared_buffers，占大头 |
-| redis（单节点） | 1g | 已设 `maxmemory 768mb` + `allkeys-lru` 防写满 |
-| rabbitmq（单节点） | 1g | Erlang VM 基线较高；3 节点则各 1g |
-| pgbouncer | 256m | |
-| backend | 512m | C++ Drogon 轻量（单副本） |
-| iot | 512m | |
-| nginx | 128m | |
-| prometheus（可选） | 512m | 索引常驻，建议独立部署 |
-
-**4C8G 内存预算**：默认精简档（Redis 单实例 + 无 replica + RMQ 3 节点）合计约 **5.5–6.5G**，为 OS / 文件系统缓存 / swap 余量留出 1.5–2.5G。若把 RMQ 删到单节点可再省 ~2G。开启 PG 副本会额外占 ~1.5–2G，此时建议 ≥8C16G。
 
 ---
 
@@ -333,28 +212,55 @@ services:
 
 ### 4.1 克隆仓库
 
-> **国内/腾讯云 VM 注意**：GitHub 直连克隆常被断流（表现为 `GnuTLS recv error (-110): The TLS connection was non-properly terminated`）。
-> 因此走 `ghproxy.net` 镜像加速，并用 `--depth 1` 浅克隆把传输量压到最小（本仓库含 vcpkg，全量克隆极易超时）。
-> 若后续确实需要完整提交历史，在仓库内执行 `git fetch --unshallow` 即可。
-
 ```bash
 sudo mkdir -p /opt/mes
 sudo chown $USER:$USER /opt/mes
-
-# 清掉上次失败可能残留的空 .git
-rm -rf /opt/mes/.git
-
-# 镜像 + 浅克隆（推荐）
-git clone --depth 1 https://ghproxy.net/https://github.com/vilaswang420/MES-cpp.git /opt/mes
-
-# 若 ghproxy 不稳定，换以下任一镜像前缀重试：
-#   git clone --depth 1 https://kgithub.com/vilaswang420/MES-cpp.git /opt/mes
-#   git clone --depth 1 https://gitclone.com/github.com/vilaswang420/MES-cpp.git /opt/mes
+cd /opt/mes
+git clone <仓库地址> .
 ```
 
 ### 4.2 构建后端镜像
 
 > **重要**: 首次构建需 vcpkg 编译全部 C++ 依赖 (Drogon, SimpleAmqpClient, hiredis, jwt-cpp 等), 约需 30-60 分钟 (取决于 CPU 和网速)。后续构建有 BuildKit 缓存会快很多。
+
+#### 4.2.1 国内服务器构建 (推荐)
+
+国内服务器无法直接访问 GitHub 和 Docker Hub, 需先完成以下配置:
+
+**① Docker 镜像加速** (解决 `docker.io` 拉取超时):
+```bash
+sudo tee /etc/docker/daemon.json > /dev/null <<'EOF'
+{
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "10m", "max-file": "3" },
+  "storage-driver": "overlay2",
+  "registry-mirrors": ["https://mirror.ccs.tencentyun.com"]
+}
+EOF
+sudo systemctl restart docker
+```
+> 阿里云服务器替换为 `https://<your-id>.mirror.aliyuncs.com`
+
+**② 使用国内构建脚本** (一键完成 vcpkg + cmake 编译):
+```bash
+cd /opt/mes
+bash scripts/build_cn.sh
+```
+脚本自动处理:
+- vcpkg GitHub 下载代理 (`ghfast.top` + `X_VCPKG_ASSET_SOURCES`)
+- cmake/ninja 版本升级 (pip 安装或镜像下载)
+- `VCPKG_FORCE_SYSTEM_BINARIES=1` (避免路径分隔符错误)
+- GCC 14 编译器 (避免 GCC 13 C++20 协程 ICE bug)
+- 非 GitHub 源码镜像 seed (如 PostgreSQL 源码走阿里云)
+
+产出: `build-out/mes-backend` 二进制 + `build-out/cmake/vcpkg_installed/` 动态库
+
+**③ 打包 Docker 镜像** (离线打包, 无网络依赖):
+```bash
+docker build -f deploy/backend/Dockerfile.cn -t mes-backend:latest .
+```
+
+#### 4.2.2 海外服务器构建 (标准多阶段)
 
 ```bash
 cd /opt/mes
@@ -404,6 +310,32 @@ docker build -f deploy/postgres/Dockerfile -t mes-postgres:16 deploy/postgres/
 
 > 如网络较慢, Dockerfile 内已内置 `ghfast.top` 代理回退。首次构建约 10-15 分钟。
 
+### 4.6 构建 IoT 采集服务镜像
+
+#### 国内服务器 (离线打包)
+
+```bash
+# 先在宿主机编译 mes-iot (复用 mes-backend 的 vcpkg 依赖)
+export X_VCPKG_ASSET_SOURCES='x-script,curl -sL https://ghfast.top/{url} --output {dst}'
+export VCPKG_FORCE_SYSTEM_BINARIES=1
+export CC=gcc-14 CXX=g++-14
+cd /opt/mes
+cmake -S mes-iot -B build-out/iot -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DVCPKG_TARGET_TRIPLET=x64-linux-dynamic \
+    -DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake
+cmake --build build-out/iot -j$(nproc)
+
+# 打包镜像
+docker build -f deploy/iot/Dockerfile.cn -t mes-iot:latest .
+```
+
+#### 海外服务器 (标准多阶段)
+
+```bash
+docker build -f deploy/iot/Dockerfile -t mes-iot:latest .
+```
+
 ---
 
 ## 5. 生产配置文件
@@ -429,6 +361,16 @@ EOF
 
 chmod 600 .env  # 保护密码
 ```
+
+> **注意 (密码特殊字符)**: 密码中避免使用 `+`、`/`、`=` 等 URL 特殊字符。
+> RabbitMQ 的 `RABBITMQ_DEFAULT_PASS` 环境变量在传递时可能被特殊处理, 导致初始密码设置不正确。
+> 如必须使用含特殊字符的密码, 启动后需手动修复:
+> ```bash
+> docker compose -f docker-compose.prod.yml exec rabbitmq-1 rabbitmqctl change_password mes '实际密码'
+> ```
+
+> **注意 (MES_REGISTRY)**: docker-compose.prod.yml 中镜像引用为 `${MES_REGISTRY}mes-backend:${MES_VERSION:-latest}`。
+> `.env` 中 `MES_REGISTRY=` (空值) 时使用本地构建的镜像; 推送到私有仓库时设为 `registry.yourcompany.com/`。
 
 ### 5.2 后端生产配置目录
 
@@ -465,6 +407,18 @@ jq --arg pgpwd "$PG_PWD" \
 chmod 600 drogon_config.json
 ```
 
+> **重要 (PgBouncer 端口)**: edoburu/pgbouncer 镜像默认监听 **5432**。
+> docker-compose.prod.yml 中已通过 `LISTEN_PORT=6432` 环境变量显式设为 6432,
+> `drogon_config.json` 中 `db_clients[0].port` 应设为 **6432** (与端口映射一致)。
+
+> **重要 (PG 密码加密方式)**: PostgreSQL 16 默认使用 SCRAM-SHA-256 密码加密, 但 pgbouncer 的 `auth_type=md5` 不兼容。
+> 部署后需将 PG 密码改为 md5 加密:
+> ```bash
+> docker compose -f docker-compose.prod.yml exec postgres-primary \
+>     psql -U mes -d mes -c "SET password_encryption = 'md5'; ALTER USER mes PASSWORD '实际PG密码';"
+> ```
+> 同时确认 pgbouncer auth_file 格式带引号: `"mes" "md5<hash>"`
+
 **rabbitmq.json** (MQ 连接配置):
 
 ```bash
@@ -500,40 +454,11 @@ deploy/compose/
 ├── config-prod/
 │   ├── drogon_config.json        # 后端配置 (PG/Redis/JWT)
 │   └── rabbitmq.json             # MQ 连接配置
-├── config-iot/                   # IoT 采集服务配置 (必须, 否则采集链路失效)
-│   └── iot.json                  # amqp_url / backend_url / backend_pwd 等
 ├── web-dist/                     # React 静态文件
 ├── dashboard-dist/               # Vue3 静态文件
 ├── docker-compose.prod.yml       # 生产编排
 └── ...
 ```
-
-### 5.5 IoT 采集服务配置（必须）
-
-`iot` 容器只挂载 `./config-iot` 并读取其中的 `iot.json`（由 `mes-iot/src/main.cc` 解析），**不读取任何 `MES_IOT_*` 环境变量**。若 `config-iot/iot.json` 缺失，容器空挂载会 shadow 掉镜像默认配置，退化为连 `127.0.0.1` 的骨架模式，采集整条链路失效。
-
-```bash
-cd /opt/mes/deploy/compose
-mkdir -p config-iot
-
-# 从模板复制后注入生产连接串与凭证
-cp /opt/mes/mes-iot/config/iot.json config-iot/iot.json
-
-MQ_PWD="实际MQ密码"
-ADMIN_PWD="后端管理员密码"
-jq --arg amqp "amqp://mes:${MQ_PWD}@rabbitmq-1:5672/" \
-   --arg burl "http://backend:8088" \
-   --arg bpwd "$ADMIN_PWD" \
-   '.amqp_url = $amqp
-    | .backend_url = $burl
-    | .backend_pwd = $bpwd' \
-   config-iot/iot.json > config-iot/iot.json.tmp \
-   && mv config-iot/iot.json.tmp config-iot/iot.json
-
-chmod 600 config-iot/iot.json
-```
-
-> `backend_pwd` 必须与后端 `config-prod/drogon_config.json` 中的管理员账号密码一致，否则 IoT 无法从 `/api/v1/iot/devices` 拉取设备配置。其余字段（`exchange`/`routing_key`/`batch_size`/`flush_interval_ms`/`healthz_port`）保持模板默认值即可。
 
 ---
 
@@ -542,7 +467,7 @@ chmod 600 config-iot/iot.json
 ### 6.1 方案 A: 自签证书 (内网/测试环境)
 
 ```bash
-cd /opt/mes/deploy/nginx/certs
+cd /opt/mes/deploy/compose
 
 # 使用 OpenSSL 生成自签证书 (10 年有效期)
 openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
@@ -554,6 +479,10 @@ openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
 chmod 600 mes.key
 ```
 
+> **证书文件位置**: 证书文件 `mes.crt` 和 `mes.key` 放在 `deploy/compose/` 目录下。
+> docker-compose.prod.yml 中通过文件级挂载映射到容器内 `/etc/nginx/certs/`:
+> `./mes.crt:/etc/nginx/certs/mes.crt:ro` 和 `./mes.key:/etc/nginx/certs/mes.key:ro`
+
 > 也可使用项目自带脚本 `scripts/gen_selfsigned_cert.ps1` (PowerShell), 但在 Linux 上用 OpenSSL 更直接。
 
 ### 6.2 方案 B: Let's Encrypt 正式证书 (生产域名)
@@ -564,19 +493,18 @@ chmod 600 mes.key
 
 ## 7. 首次启动与数据库迁移
 
-### 7.1 首次启动（默认精简形态）
+### 7.1 首次启动 (不含 replica)
 
-默认 `docker-compose.prod.yml` 已是精简形态：**Redis 单实例、无 PG 副本、RMQ 3 节点**。直接 `up` 即可，无需像旧版那样单独挑服务或等集群初始化。
+首次启动时 **不启动 postgres-replica**, 因为 replica 需要 pg_basebackup 从 primary 同步数据。
 
 ```bash
 cd /opt/mes/deploy/compose
 
-# 默认精简形态启动 (Redis 单实例 + 无 replica)
-docker compose -f docker-compose.prod.yml up -d
-
-# 如需开启 PG 只读副本 (热备, 见 §3.5.6): 叠加 ha-pg 层
-# docker compose -f docker-compose.prod.yml -f docker-compose.prod.ha-pg.yml up -d
-# ⚠ Redis Cluster 需后端集群客户端支持, 当前不要叠加 docker-compose.prod.ha-redis.yml。
+# 方法: 先注释掉 prod.yml 中的 postgres-replica 服务, 或单独启动核心服务
+docker compose -f docker-compose.prod.yml up -d \
+    postgres-primary pgbouncer redis-1 redis-2 redis-3 \
+    redis-4 redis-5 redis-6 redis-cluster-init \
+    rabbitmq-1 rabbitmq-2 rabbitmq-3
 
 # 等待 PG 健康
 until docker compose -f docker-compose.prod.yml exec -T postgres-primary \
@@ -584,10 +512,10 @@ until docker compose -f docker-compose.prod.yml exec -T postgres-primary \
     echo "waiting for postgres..."; sleep 3
 done
 
-# 等待 Redis 就绪 (单实例)
+# 等待 Redis Cluster 初始化完成
 until docker compose -f docker-compose.prod.yml exec -T redis-1 \
-    redis-cli -h redis-1 ping 2>/dev/null | grep -q PONG; do
-    echo "waiting for redis..."; sleep 3
+    redis-cli cluster info 2>/dev/null | grep -q "cluster_state:ok"; do
+    echo "waiting for redis cluster..."; sleep 3
 done
 
 # 等待 RMQ 集群就绪
@@ -610,8 +538,8 @@ docker compose -f docker-compose.prod.yml exec -T postgres-primary bash -c '
     && touch /tmp/replica_data/standby.signal
 '
 
-# 启动 replica (需叠加 ha-pg 层, 因为 postgres-replica 定义在 docker-compose.prod.ha-pg.yml)
-docker compose -f docker-compose.prod.yml -f docker-compose.prod.ha-pg.yml up -d postgres-replica
+# 启动 replica
+docker compose -f docker-compose.prod.yml up -d postgres-replica
 ```
 
 > **注意**: `init_replica.sh` 需要在 primary 上有复制权限。PG16 默认使用 `mes` 账号, `POSTGRES_HOST_AUTH_METHOD=md5` 允许流复制。如遇权限问题, 在 primary 上执行:
@@ -624,26 +552,35 @@ docker compose -f docker-compose.prod.yml -f docker-compose.prod.ha-pg.yml up -d
 
 ```bash
 cd /opt/mes
+source deploy/compose/.env
 
-# 通过 PgBouncer 执行迁移 (端口 6432)
+# 方案 A: 通过宿主机 PgBouncer 端口执行 (推荐, pgbouncer 已配置 LISTEN_PORT=6432)
 migrate \
     -path "mes-backend/migrations" \
     -database "postgres://mes:${MES_PG_PASSWORD}@localhost:6432/mes?sslmode=disable" \
     up
 
-# 验证迁移版本
-migrate \
-    -path "mes-backend/migrations" \
-    -database "postgres://mes:${MES_PG_PASSWORD}@localhost:6432/mes?sslmode=disable" \
-    version
+# 方案 B: 容器内用 psql 逐个执行 (无需安装 migrate, 适用于容器内无 migrate 的场景)
+docker compose -f deploy/compose/docker-compose.prod.yml cp \
+    mes-backend/migrations postgres-primary:/tmp/migrations
+docker compose -f deploy/compose/docker-compose.prod.yml exec -T postgres-primary \
+    bash -c 'for f in /tmp/migrations/*.up.sql; do echo "=== $f ==="; psql -U mes -d mes -f "$f"; done'
 ```
 
-> **重要**: 迁移路径必须用正斜杠 `/`。如果 PgBouncer 未暴露端口, 可以直连 primary:
-> ```bash
-> # 先临时暴露 5432 端口或通过 docker exec
-> docker compose -f deploy/compose/docker-compose.prod.yml exec -T postgres-primary \
->     psql -U mes -d mes -c "SELECT * FROM schema_migrations;"
-> ```
+验证迁移结果:
+
+```bash
+# 检查表列表
+docker compose -f deploy/compose/docker-compose.prod.yml exec -T postgres-primary \
+    psql -U mes -d mes -c "\dt"
+
+# 检查 mq_outbox 表 (backend 启动时需要)
+docker compose -f deploy/compose/docker-compose.prod.yml exec -T postgres-primary \
+    psql -U mes -d mes -c "SELECT count(*) FROM mq_outbox;"
+```
+
+> **重要**: 迁移前需确认 PG 密码加密方式为 md5 (见 [5.2 节](#52-后端生产配置目录) 说明)。
+> PgBouncer 的 `auth_type=md5` 与 PG 默认的 SCRAM-SHA-256 不兼容, 需先执行 `ALTER USER` 切换。
 
 ### 7.4 验证分区和定时任务
 
@@ -669,7 +606,7 @@ SQL
 ```bash
 cd /opt/mes/deploy/compose
 
-# 启动后端 (单副本)
+# 启动后端 (双副本)
 docker compose -f docker-compose.prod.yml up -d backend
 
 # 等待后端健康
@@ -935,7 +872,7 @@ docker compose logs -f --tail=100 backend
 # 进入容器
 docker compose exec postgres-primary psql -U mes -d mes
 docker compose exec rabbitmq-1 rabbitmqctl status
-docker compose exec redis-1 redis-cli -h redis-1 ping   # 单实例; 查内存用 redis-cli -h redis-1 info memory
+docker compose exec redis-1 redis-cli cluster info
 
 # 更新镜像后重新部署
 docker compose up -d backend   # 滚动更新后端
@@ -1021,7 +958,7 @@ docker compose -f deploy/compose/docker-compose.prod.yml exec -T postgres-primar
 
 ### 12.3 Redis 持久化
 
-Redis 单实例默认开启 AOF (`--appendonly yes`), 数据持久化到卷中。无需额外备份配置数据。
+Redis Cluster 默认开启 AOF (`--appendonly yes`), 数据持久化到各自卷中。无需额外备份配置数据。
 
 ### 12.4 配置文件备份
 
@@ -1091,11 +1028,22 @@ docker compose restart backend
 
 | 现象 | 可能原因 | 解决方案 |
 |------|---------|---------|
+| 后端报 `wrong password type` | PG 用 SCRAM-SHA-256, pgbouncer 用 md5 | `SET password_encryption='md5'; ALTER USER mes PASSWORD '...';` (见 5.2 节) |
+| 后端报 `libhiredisd.so.1 not found` | Dockerfile.cn 只 COPY 了 release lib | 添加 `COPY .../debug/lib/*.so* /app/lib/` (见 Dockerfile.cn) |
+| Redis 报 `Cluster announce IP must be a valid IPv4` | `cluster-announce-ip` 用了容器名 | 改为 `cluster-announce-hostname` (Redis 7.4 要求) |
+| RabbitMQ 报 `unknown variable: quorum_queue.default_leader_locator` | RabbitMQ 3.13 不支持此参数 | 改为 `queue_leader_locator = balanced` (rabbitmq-cluster.conf) |
+| RabbitMQ 报 `PLAIN login refused: invalid credentials` | 密码含 `+` 号, 环境变量传递异常 | `rabbitmqctl change_password mes '实际密码'`; 或密码避免特殊字符 |
+| Nginx 报 `cannot load certificate mes.crt` | 证书路径挂载不匹配 | 证书放 `deploy/compose/`, docker-compose 用文件级挂载 (见 6.1 节) |
+| Docker 拉取镜像超时 `dial tcp i/o timeout` | 国内直连 docker.io 被阻断 | 配置 daemon.json `registry-mirrors` (见 4.2.1 节) |
+| vcpkg 下载超时 `curl error 56` | 国内直连 GitHub 超时 | 设置 `X_VCPKG_ASSET_SOURCES` + ghfast.top 代理 (见 build_cn.sh) |
+| vcpkg 报 `Host path separator (:) in path` | vcpkg 自举工具路径冲突 | 设置 `VCPKG_FORCE_SYSTEM_BINARIES=1` |
+| GCC 编译报 `internal compiler error: build_special_member_call` | GCC 13 C++20 协程 ICE bug | 使用 GCC 14+ (`apt install gcc-14 g++-14`) |
+| docker-compose 报 `registry.local: server misbehaving` | MES_REGISTRY 为空时仍用默认值 | `.env` 中 `MES_REGISTRY=` + compose 用 `${MES_REGISTRY}` 而非 `${MES_REGISTRY:-registry.local}` |
 | 后端启动失败, 日志报 DB 连接超时 | PgBouncer 未就绪或密码不匹配 | 检查 `config-prod/drogon_config.json` 中 host=pgbouncer, passwd 与 .env 一致 |
 | 后端报 `incorrect binary data format` | 数值绑定参数未用 SqlArg | 代码问题, 见 HANDOVER.md 踩坑 #19 |
 | Nginx 502 Bad Gateway | 后端未启动或端口不匹配 | `docker compose ps backend`; 检查 nginx.conf upstream |
 | WebSocket 连接失败 | Nginx WSS 代理配置缺失 | 检查 nginx.conf `/ws` location 有 Upgrade/Connection 头 |
-| Redis 不可用 | 单实例进程异常或 OOM 被杀 | `docker compose exec redis-1 redis-cli -h redis-1 ping`; 检查 `docker logs redis-1` 与内存上限 |
+| Redis Cluster `CLUSTERDOWN` | 集群未初始化或节点宕机 | `docker compose exec redis-1 redis-cli cluster info`; 检查 redis-cluster-init 是否完成 |
 | RabbitMQ `CONNECTION_REFUSED` | RMQ 集群未组建 | 检查 Erlang Cookie 一致; `rabbitmqctl cluster_status` |
 | PG 分区写入失败 `no partition` | pg_partman 未预建足够分区 | `SELECT partman.run_maintenance_proc();` 手动触发 |
 | 后端 OOM 或高 CPU | 连接池/线程数过大 | 降低 `connection_number` 或 `threads_num` |
@@ -1145,25 +1093,28 @@ docker compose -f deploy/compose/docker-compose.prod.yml exec postgres-primary \
 □ 3. 防火墙配置 (22/80/443 开放)
 □ 4. 系统参数调优 (文件描述符/TCP)
 □ 5. 源码克隆到 /opt/mes
-□ 6. 后端镜像构建成功 (docker build)
-□ 7. 前端镜像构建成功 (web + dashboard)
-□ 8. 前端静态文件提取到 deploy/compose/web-dist 和 dashboard-dist
-□ 9. 定制 PG 镜像构建成功
-□ 10. .env 文件配置 (PG/MQ 密码, Cookie)
-□ 11. config-prod/drogon_config.json 配置 (PG密码, JWT密钥)
-□ 12. config-prod/rabbitmq.json 配置 (MQ密码)
-□ 13. TLS 证书生成 (自签或 Let's Encrypt)
-□ 14. 中间件启动 (PG + PgBouncer + Redis 单实例 + RMQ)
-□ 15. 只读副本初始化 (init_replica.sh)
-□ 16. 数据库迁移执行成功 (migrate up)
-□ 17. 分区和定时任务验证 (partman + cron)
-□ 18. 后端启动 + healthz 通过
-□ 19. Nginx 启动 + HTTPS 可访问
-□ 20. Prometheus 启动 + 指标可查
-□ 21. 功能验证 (登录 + API + WS + 前端页面)
-□ 22. 默认密码修改
-□ 23. 备份计划配置 (Cron + pg_dump)
-□ 24. (可选) Let's Encrypt 正式证书 + 自动续期
+□ 6. (国内) Docker 镜像加速配置 (daemon.json + registry-mirrors)
+□ 7. 后端镜像构建成功 (国内用 build_cn.sh + Dockerfile.cn; 海外用 Dockerfile)
+□ 8. IoT 采集服务镜像构建成功 (国内用 Dockerfile.cn; 海外用 Dockerfile)
+□ 9. 前端镜像构建成功 (web + dashboard)
+□ 10. 前端静态文件提取到 deploy/compose/web-dist 和 dashboard-dist
+□ 11. 定制 PG 镜像构建成功 (国内需 apt 镜像源加速)
+□ 12. .env 文件配置 (PG/MQ 密码, Cookie; 密码避免 +/= 等特殊字符)
+□ 13. config-prod/drogon_config.json 配置 (PG密码, JWT密钥; PG端口=5432)
+□ 14. config-prod/rabbitmq.json 配置 (MQ密码)
+□ 15. TLS 证书生成 (放在 deploy/compose/ 目录下)
+□ 16. (PG密码) SCRAM→md5 加密方式切换 (见 5.2 节)
+□ 17. 中间件启动 (PG + PgBouncer + Redis Cluster + RMQ)
+□ 18. 只读副本初始化 (init_replica.sh)
+□ 19. 数据库迁移执行成功 (migrate up)
+□ 20. 分区和定时任务验证 (partman + cron)
+□ 21. 后端启动 + healthz 通过
+□ 22. Nginx 启动 + HTTPS 可访问
+□ 23. Prometheus 启动 + 指标可查
+□ 24. 功能验证 (登录 + API + WS + 前端页面)
+□ 25. 默认密码修改
+□ 26. 备份计划配置 (Cron + pg_dump)
+□ 27. (可选) Let's Encrypt 正式证书 + 自动续期
 □ 25. (可选) Alertmanager + Grafana 接入
 ```
 
@@ -1176,8 +1127,8 @@ docker compose -f deploy/compose/docker-compose.prod.yml exec postgres-primary \
 | 80 | Nginx | 是 | HTTP → 301 HTTPS |
 | 443 | Nginx | 是 | HTTPS + WSS 入口 |
 | 5432 | PostgreSQL | 否 (内部) | 主库 (通过 PgBouncer 访问) |
-| 6432 | PgBouncer | 仅 127.0.0.1 | 连接池入口 (Docker 发布端口绕过 ufw, 故显式绑本机) |
-| 6379 | Redis | 否 (内部) | Redis 单实例 |
+| 6432 | PgBouncer | 否 (内部) | 连接池入口 |
+| 6379 | Redis | 否 (内部) | Redis Cluster 节点 |
 | 5672 | RabbitMQ AMQP | 否 (内部) | 消息队列 |
 | 15672 | RabbitMQ Management | 否 (内部) | 管理界面 (需 SSH 隧道) |
 | 8088 | Backend | 否 (内部) | Drogon HTTP/WS |

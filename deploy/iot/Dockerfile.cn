@@ -1,0 +1,40 @@
+# ===== mes-iot 国内离线构建版 (Linux/Ubuntu) =====
+# 核心思路: 宿主机完成全部编译 (vcpkg + cmake), Docker 只打包最终二进制。
+# 构建过程 100% 无外网访问, 仅用阿里云 apt 源装运行时库。
+# 构建: docker build -f deploy/iot/Dockerfile.cn -t mes-iot:latest .
+# 注意: 构建上下文 = 仓库根目录
+#
+# 国内 Docker 镜像加速 (解决 docker.io 拉取超时):
+#   需在 /etc/docker/daemon.json 中配置 registry-mirrors:
+#     腾讯云: https://mirror.ccs.tencentyun.com
+#     阿里云: https://<your-id>.mirror.aliyuncs.com
+#   配置后执行: sudo systemctl restart docker
+
+# ---- 阶段: 打包 (无任何外部下载) ----
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# 切换阿里云 apt 源 (Ubuntu 24.04 使用 deb822 格式)
+RUN sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g; s|http://security.ubuntu.com/ubuntu/|http://mirrors.aliyun.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources \
+ && apt-get update && apt-get install -y --no-install-recommends \
+        libssl3 zlib1g ca-certificates tzdata \
+        libkrb5-3 libldap2 \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# 宿主机制作好的二进制 (cmake -S mes-iot -B build-out/iot 产出, 动态链接 x64-linux-dynamic)
+COPY build-out/iot/mes-iot ./mes-iot
+# 动态链接产物: 一并打包 vcpkg 依赖的 .so (LD_LIBRARY_PATH 让加载器全局可寻, 含传递依赖)
+COPY build-out/iot/vcpkg_installed/x64-linux-dynamic/lib/*.so* /app/lib/
+ENV LD_LIBRARY_PATH=/app/lib
+# 配置以挂载为准 (compose 覆盖 config/iot.json)
+COPY mes-iot/config/iot.json /app/config/iot.json
+
+RUN mkdir -p /app/logs
+
+EXPOSE 8091
+HEALTHCHECK --interval=10s --timeout=3s --retries=6 \
+    CMD ["sh", "-c", "exec 3<>/dev/tcp/127.0.0.1/8091 && printf 'GET /healthz HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q ok <&3"]
+CMD ["./mes-iot", "config/iot.json"]

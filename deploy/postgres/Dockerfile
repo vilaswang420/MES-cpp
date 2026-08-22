@@ -4,7 +4,10 @@ FROM postgres:16
 
 ENV PG_PARTMAN_VERSION=5.1.0
 
+# 切换 Debian apt 源为阿里云镜像 (国内直连 deb.debian.org / apt.postgresql.org 极慢)
 RUN set -eux; \
+    sed -i 's|http://deb.debian.org|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/*.sources; \
+    sed -i 's|http://apt.postgresql.org|https://mirrors.aliyun.com/postgresql|g' /etc/apt/sources.list.d/*.sources; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
         build-essential postgresql-server-dev-16 \

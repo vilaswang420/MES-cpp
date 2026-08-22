@@ -30,7 +30,10 @@ WORKDIR /app
 # 宿主机制作好的二进制 (scripts/build_cn.sh 产出, 动态链接 x64-linux-dynamic)
 COPY build-out/cmake/mes-backend ./mes-backend
 # 动态链接产物: 一并打包 vcpkg 依赖的 .so (LD_LIBRARY_PATH 让加载器全局可寻, 含传递依赖)
+# 注意: hiredis 的 debug 版本 libhiredisd.so 被 CMake 链接到 Release 产物中,
+# 需同时 COPY release 和 debug 两个目录的 .so 文件
 COPY build-out/cmake/vcpkg_installed/x64-linux-dynamic/lib/*.so* /app/lib/
+COPY build-out/cmake/vcpkg_installed/x64-linux-dynamic/debug/lib/*.so* /app/lib/
 ENV LD_LIBRARY_PATH=/app/lib
 COPY mes-backend/config/drogon_config.prod.json /app/config/drogon_config.json
 COPY mes-backend/config/rabbitmq.json /app/config/rabbitmq.json
