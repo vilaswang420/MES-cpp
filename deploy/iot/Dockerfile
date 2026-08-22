@@ -12,8 +12,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # vcpkg (manifest 模式, 依赖 = mes-iot/vcpkg.json)
-RUN git clone --depth 1 https://github.com/microsoft/vcpkg /opt/vcpkg \
+# CN 网络适配: clone 与 bootstrap 二进制均改写 github.com -> ghfast.top 代理,
+# 并配置资产代理缓存 (vcpkg 拉依赖源码走 ghfast.top, 镜像仅覆盖 github.com)。
+RUN git clone --depth 1 https://ghfast.top/https://github.com/microsoft/vcpkg /opt/vcpkg \
+    && sed -i 's#https://github.com/#https://ghfast.top/https://github.com/#g' /opt/vcpkg/bootstrap-vcpkg.sh \
     && /opt/vcpkg/bootstrap-vcpkg.sh
+RUN cat > /opt/vcpkg/vcpkg-configuration.json <<'EOF'
+{
+  "assetCache": {
+    "mirror": { "kind": "url", "url": "https://ghfast.top/", "expiration": "30d" }
+  }
+}
+EOF
 ENV VCPKG_ROOT=/opt/vcpkg
 
 WORKDIR /src

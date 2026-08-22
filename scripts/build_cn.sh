@@ -111,6 +111,9 @@ export CXX=g++-14
 
 echo "==> [3/5] 配置 vcpkg 资产代理 (ghfast.top)"
 # 让 vcpkg 下载依赖源码时走 GitHub 代理; 本地已有 downloads 缓存则不受影响
+# 注意: vcpkg-configuration.json 中的 assetCache 配置在部分 vcpkg 版本中不生效,
+#       必须同时设置 X_VCPKG_ASSET_SOURCES 环境变量 (x-script 类型) 才能可靠代理所有 GitHub 下载
+#       (包括 archive 和 releases 两种路径, 如 boost 源码和 cmake 预编译包)。
 cat > "$VCPKG_ROOT/vcpkg-configuration.json" <<EOF
 {
   "assetCache": {
@@ -122,6 +125,8 @@ cat > "$VCPKG_ROOT/vcpkg-configuration.json" <<EOF
   }
 }
 EOF
+# x-script 方式通过 curl 将原始 URL 替换为 ghfast.top 镜像 URL, 可代理所有 GitHub 下载
+export X_VCPKG_ASSET_SOURCES='x-script,curl -sL https://ghfast.top/{url} --output {dst}'
 
 echo "==> [3.5/5] 预置非 GitHub 源码 (ghfast.top 仅镜像 github.com, 覆盖不到的源需国内镜像 seed)"
 # 问题: libpq 端口依赖 postgresql 源码 (postgresql-18.4.tar.bz2) 从 ftp.postgresql.org 下载,

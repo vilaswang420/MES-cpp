@@ -5,6 +5,16 @@ set(CMAKE_CXX_STANDARD 20)          # Service 层 Drogon 协程要求 C++20
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# GCC 13 在 C++20 协程 (drogon::Task<>) 下存在内部编译器错误 (ICE):
+#   internal compiler error: in build_special_member_call, at cp/call.cc:11096
+#   触发文件: src/services/IntegrationService.cc (reportCompletionSaga 函数)
+# 解决方案: 使用 GCC 14+ 编译 (build_cn.sh 中已固定 CC=gcc-14 CXX=g++-14)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 14)
+    message(WARNING "GCC ${CMAKE_CXX_COMPILER_VERSION} 检测到已知 C++20 协程 ICE bug, "
+                    "建议使用 GCC 14+ (apt install gcc-14 g++-14, "
+                    "cmake -DCMAKE_CXX_COMPILER=g++-14)")
+endif()
+
 # MSVC: 源码为 UTF-8 (含中文注释/字符串), 显式声明避免按 GBK 解析导致 C2001
 if(MSVC)
     add_compile_options(/utf-8)

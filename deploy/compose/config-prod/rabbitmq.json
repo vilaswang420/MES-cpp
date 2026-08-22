@@ -1,0 +1,12 @@
+{
+    "amqp_url": "amqp://mes:test@rabbitmq-1:5672/%2F",
+    "exchange": "iot.exchange",
+    "consume_queues": [
+        "iot.cmd.queue"
+    ],
+    "data_queue": "iot.data.queue",
+    "alert_queue": "iot.alert.queue",
+    "prefetch_count": 200,
+    "publisher_confirms": true,
+    "comment": "local smoke: amqp 指向 rabbitmq-1 容器"
+}
