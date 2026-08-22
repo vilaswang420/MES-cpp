@@ -127,6 +127,17 @@ echo \
 sudo apt update
 sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
+# 下载 Docker 官方 GPG key 被重置连接（GFW/网络问题）。替代方案：
+# 方案 ：用国内镜像源（推荐，最快）
+## 1. 加 key（阿里云）
+curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+
+## 2. 加仓库（阿里云）
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://mirrors.aliyun.com/docker-ce/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+## 3. 装
+sudo apt update && sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
 # 将当前用户加入 docker 组 (免 sudo)
 sudo usermod -aG docker $USER
 newgrp docker
@@ -170,12 +181,22 @@ sudo ufw status verbose
 # 文件描述符上限 (WS 长连接 + DB 连接池)
 echo "* soft nofile 65536" | sudo tee -a /etc/security/limits.conf
 echo "* hard nofile 65536" | sudo tee -a /etc/security/limits.conf
+## 2C2G 适配版
+echo "* soft nofile 30000" | sudo tee -a /etc/security/limits.conf
+echo "* hard nofile 30000" | sudo tee -a /etc/security/limits.conf
 
 # 内核参数
 sudo tee -a /etc/sysctl.conf <<EOF
 net.core.somaxconn = 65535
 net.ipv4.tcp_max_syn_backlog = 65535
 net.ipv4.ip_local_port_range = 10000 65535
+vm.overcommit_memory = 1
+EOF
+sudo sysctl -p
+## 2C2G 适配版
+sudo tee -a /etc/sysctl.conf <<EOF
+net.core.somaxconn = 4096
+net.ipv4.tcp_max_syn_backlog = 4096
 vm.overcommit_memory = 1
 EOF
 sudo sysctl -p
