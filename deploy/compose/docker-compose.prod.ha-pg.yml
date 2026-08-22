@@ -1,0 +1,37 @@
+# 生产高可用叠加层 —— PostgreSQL 只读副本 (热备 / 故障切换候选)
+# 用法:
+#   docker compose -f docker-compose.prod.yml -f docker-compose.prod.ha-pg.yml up -d
+# 仅用基础文件时为精简默认形态 (无 PG 副本)。
+#
+# ⚠ 重要: 本文件目前的价值是「热备 (hot standby)」与「为将来预留拓扑」,
+#    NOT "开启即用 = 读查询自动分流到副本"。原因:
+#    后端 mes-backend 当前仅有一个 default db_client (指向 pgbouncer:6432),
+#    全源码均通过 drogon::app().getDbClient() 取该默认客户端, 没有任何命名 RO 客户端,
+#    也没有读写分离逻辑去查询 postgres-replica。因此叠加本文件后, 副本会起为
+#    hot_standby, 但不会被任何只读查询使用 —— 它是闲置热备, 故障时可手动提升 (promote)
+#    为对外服务的主库。真正的读写分离需在后端新增 RO db_client 并把相应查询切到该客户端后,
+#    再令其连接 postgres-replica 才会生效。
+# 数据目录由 deploy/postgres/init_replica.sh 通过 pg_basebackup 预填充 (含 standby.signal)。
+
+services:
+  postgres-replica:
+    build:
+      context: ../postgres
+    environment:
+      POSTGRES_DB: mes
+      POSTGRES_USER: mes
+      POSTGRES_PASSWORD: ${MES_PG_PASSWORD}
+    command: ["postgres", "-c", "hot_standby=on"]
+    volumes:
+      - mes_pg_replica:/var/lib/postgresql/data
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mes -d mes"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+volumes:
+  mes_pg_replica:

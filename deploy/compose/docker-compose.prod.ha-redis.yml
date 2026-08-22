@@ -1,41 +1,19 @@
-# 生产高可用叠加层 (optional overlay)
-# 用法:
-#   docker compose -f docker-compose.prod.yml -f docker-compose.prod.ha.yml up -d
-# 仅用 docker-compose.prod.yml 时为精简默认形态:
-#   - Redis 单实例 (redis-1)
-#   - 无 PG 只读副本 (读写分离关闭, 只读走主库)
-# 叠加本文件后打开高可用:
-#   - PostgreSQL 只读副本 postgres-replica (读写分离)
-#   - Redis Cluster 3主3从
-# ⚠ Redis Cluster 限制: 后端当前用 Drogon 内置 hiredis 单节点客户端, 不支持 Cluster 的
-#   MOVED/ASK 重定向, 开启后约 2/3 的 key 会读写出错。须待后端升级为集群客户端后方可实际启用。
-#   在后端支持前, 建议保持 Redis 单实例 (不叠加本文件或仅叠加 PG 副本部分)。
-# RabbitMQ 3 节点集群已在基础文件中默认开启, 不在此叠加。
+# ⚠ 暂不可用 (P0 风险) —— 在后端升级为 Redis 集群客户端之前, 请勿叠加本文件!
+#
+# 生产高可用叠加层 —— Redis Cluster (3 主 3 从)
+# 用法 (后端支持集群后):
+#   docker compose -f docker-compose.prod.yml -f docker-compose.prod.ha-redis.yml up -d
+#
+# ⚠ Redis Cluster 限制: 后端当前用 Drogon 内置 hiredis 单节点客户端,
+#   不支持 Cluster 的 MOVED/ASK 重定向。一旦开启 Redis Cluster, 约 2/3 的 key
+#   会因 CRC16 槽位落在其他节点而读写出错 (返回 MOVED, 后端无法跟随)。
+#   须在后端改为集群客户端 (如 redis-plus-plus / hiredis-cluster 并启用拓扑刷新) 后方可启用。
+#   在后端支持前, 保持 Redis 单实例 (redis-1) 即可, 无需叠加本文件。
+#
+# 本文件保留 Redis Cluster 定义, 以便客户端支持后一键启用。
 
 services:
-  # ---- PG 只读副本 (任务 25 读写分离) ----
-  # 数据目录由 deploy/postgres/init_replica.sh 通过 pg_basebackup 预填充 (含 standby.signal)
-  postgres-replica:
-    build:
-      context: ../postgres
-    environment:
-      POSTGRES_DB: mes
-      POSTGRES_USER: mes
-      POSTGRES_PASSWORD: ${MES_PG_PASSWORD}
-    command: ["postgres", "-c", "hot_standby=on"]
-    volumes:
-      - mes_pg_replica:/var/lib/postgresql/data
-    depends_on:
-      postgres-primary:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mes -d mes"]
-      interval: 5s
-      timeout: 3s
-      retries: 12
-
-  # ---- Redis Cluster: 把 redis-1 改为 cluster-enabled, 并补齐 2~6 + 初始化 ----
-  # ⚠ 见文件头限制说明: 当前后端不支持集群客户端, 启用后会读写出错。
+  # 把 redis-1 从单实例改为 cluster-enabled
   redis-1:
     command: ["redis-server", "--cluster-enabled", "yes", "--cluster-config-file", "nodes.conf",
               "--appendonly", "yes", "--cluster-announce-ip", "redis-1"]
@@ -96,7 +74,6 @@ services:
       - redis-6
 
 volumes:
-  mes_pg_replica:
   mes_redis_2:
   mes_redis_3:
   mes_redis_4:

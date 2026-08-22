@@ -63,7 +63,7 @@
 | 服务 | 镜像 | 副本 | 端口 | 说明 |
 |------|------|------|------|------|
 | postgres-primary | 定制 PG16 | 1 | 内部 | 主库 (pg_partman + pg_cron, wal_level=replica) |
-| postgres-replica | 定制 PG16 | 1 | 内部 | 只读副本 (pg_basebackup 初始化; **默认关闭**, 叠加 docker-compose.prod.ha.yml 开启) |
+| postgres-replica | 定制 PG16 | 1 | 内部 | 只读副本 / 热备 (pg_basebackup 初始化; **默认关闭**, 叠加 docker-compose.prod.ha-pg.yml 开启) |
 | pgbouncer | edoburu/pgbouncer | 1 | 127.0.0.1:6432 | 连接池 (transaction 模式, 仅绑本机) |
 | redis-1 | redis:7-alpine | 1 | 内部 | Redis 单实例 (Drogon 客户端不支持 Cluster) |
 | rabbitmq-1~3 | rabbitmq:3.13-management | 3 | 内部 | RMQ 集群 (默认 3 节点; 4C8G 可只留 rabbitmq-1) |
@@ -179,7 +179,7 @@ sudo ufw status verbose
 
 ### 3.5 系统参数调优（4 核 8G 单机）
 
-> **规格前提**：本节面向 **4C8G** 单机。完整高可用编排（Redis Cluster 6 节点 + RMQ 3 节点 + PG 主从 + 后端单副本 + Prometheus，由 `docker-compose.prod.ha.yml` 叠加）
+> **规格前提**：本节面向 **4C8G** 单机。高可用为可配置叠加层：PG 只读副本（叠加 `docker-compose.prod.ha-pg.yml`）、Redis Cluster（叠加 `docker-compose.prod.ha-redis.yml`，**当前后端不支持，暂不可用**）。默认精简档 = Redis 单实例 + 无 PG 副本 + RMQ 3 节点 + 后端单副本 + Prometheus。
 > 在 8G 下空闲内存就已逼近物理上限，加压必触发 OOM Killer。
 > **4C8G 推荐组合**：① 改跑「单实例精简档」——1 PostgreSQL / 1 Redis 单节点（非 cluster）/ 1 RabbitMQ / 1 backend / 1 iot / nginx，Prometheus 可选或后期独立部署；
 > ② **必须给每个容器设内存上限**（见 3.5.6，compose 默认无上限）；③ 开 2G swap 作安全垫。正式 GA 压测仍建议 ≥8C16G（见性能验证章节）。
@@ -272,18 +272,24 @@ sudo systemctl restart docker
 
 > 生产 compose **默认未设任何内存上限**，4C8G 下任一服务吃满即 OOM。
 > 注意：用 `docker compose up`（非 Swarm）时，`deploy.resources.limits` **不生效**，必须用 `mem_limit` 键。
-> Redis **默认单实例**（基础文件 `docker-compose.prod.yml` 仅含 `redis-1`）；PG 只读副本 **默认关闭**（已抽到 `docker-compose.prod.ha.yml`）。
+> Redis **默认单实例**（基础文件 `docker-compose.prod.yml` 仅含 `redis-1`）；PG 只读副本 **默认关闭**（已抽到 `docker-compose.prod.ha-pg.yml`）。
 
-**高可用是可配置的，不是删除的**
+**高可用是可配置的，不是删除的** —— 拆成两个独立叠加层，按需取用：
 
 - **默认**（仅 `docker-compose.prod.yml`）：Redis 单实例 + 无 PG 副本 + RMQ 3 节点 → 适合 4C8G 起步。
-- **需要高可用时叠加** `docker-compose.prod.ha.yml`：
+- **`docker-compose.prod.ha-pg.yml`**（PG 只读副本 / 热备，立即可用）：
   ```bash
-  docker compose -f docker-compose.prod.yml -f docker-compose.prod.ha.yml up -d
+  docker compose -f docker-compose.prod.yml -f docker-compose.prod.ha-pg.yml up -d
   ```
-  叠加层会开启：PG 只读副本 `postgres-replica`（读写分离）、Redis Cluster（3 主 3 从）。
+  > ⚠ **副本当前只是热备，不是读写分离**。后端仅有一个 default db_client（指向 pgbouncer），没有任何命名 RO 客户端，也没有读写分离逻辑去查 `postgres-replica`。叠加本层后副本以 hot_standby 运行但**不会被任何只读查询使用**；故障时可手动 `promote` 提升为主库。真正的读写分流需后端新增 RO db_client 并实现分流逻辑后才生效（详见 `docker-compose.prod.ha-pg.yml` 文件头注释）。
+- **`docker-compose.prod.ha-redis.yml`**（Redis Cluster 3 主 3 从，**暂不可用 ⛔**）：
+  ```bash
+  # 当前不要叠加！后端 hiredis 单节点客户端不支持 Cluster MOVED/ASK 重定向，
+  # 开启后约 2/3 的 key 会读写出错。须待后端升级为集群客户端后再用。
+  # docker compose -f docker-compose.prod.yml -f docker-compose.prod.ha-redis.yml up -d
+  ```
 
-> ⚠ **Redis Cluster 已知限制**：后端当前用 Drogon 内置 hiredis **单节点**客户端，不支持 Cluster 的 `MOVED/ASK` 重定向。一旦开启 Redis Cluster，约 2/3 的 key 会因槽位落在其他节点而读写出错。**在后端升级为集群客户端之前，建议保持 Redis 单实例**——即不叠加 `ha.yml`，或只用其中的 PG 副本部分（可临时注释掉 `ha.yml` 里的 `redis-*` 段）。
+> ⚠ **Redis Cluster 已知限制**：后端当前用 Drogon 内置 hiredis **单节点**客户端，不支持 Cluster 的 `MOVED/ASK` 重定向。一旦开启 Redis Cluster，约 2/3 的 key 会因槽位落在其他节点而读写出错。**在后端升级为集群客户端之前，建议保持 Redis 单实例**——即不叠加 `docker-compose.prod.ha-redis.yml`。
 
 **容器内存上限**：在各 service 下手动加 `mem_limit`（示例）：
 
@@ -568,9 +574,9 @@ cd /opt/mes/deploy/compose
 # 默认精简形态启动 (Redis 单实例 + 无 replica)
 docker compose -f docker-compose.prod.yml up -d
 
-# 如需开启高可用 (PG 副本 + Redis Cluster), 叠加 ha 层:
-# docker compose -f docker-compose.prod.yml -f docker-compose.prod.ha.yml up -d
-# ⚠ 见 §3.5.6: Redis Cluster 需后端集群客户端支持, 当前建议保持单实例。
+# 如需开启 PG 只读副本 (热备, 见 §3.5.6): 叠加 ha-pg 层
+# docker compose -f docker-compose.prod.yml -f docker-compose.prod.ha-pg.yml up -d
+# ⚠ Redis Cluster 需后端集群客户端支持, 当前不要叠加 docker-compose.prod.ha-redis.yml。
 
 # 等待 PG 健康
 until docker compose -f docker-compose.prod.yml exec -T postgres-primary \
@@ -604,8 +610,8 @@ docker compose -f docker-compose.prod.yml exec -T postgres-primary bash -c '
     && touch /tmp/replica_data/standby.signal
 '
 
-# 启动 replica (需叠加 ha 层, 因为 postgres-replica 定义在 docker-compose.prod.ha.yml)
-docker compose -f docker-compose.prod.yml -f docker-compose.prod.ha.yml up -d postgres-replica
+# 启动 replica (需叠加 ha-pg 层, 因为 postgres-replica 定义在 docker-compose.prod.ha-pg.yml)
+docker compose -f docker-compose.prod.yml -f docker-compose.prod.ha-pg.yml up -d postgres-replica
 ```
 
 > **注意**: `init_replica.sh` 需要在 primary 上有复制权限。PG16 默认使用 `mes` 账号, `POSTGRES_HOST_AUTH_METHOD=md5` 允许流复制。如遇权限问题, 在 primary 上执行:

@@ -115,7 +115,9 @@ services:
       # ⚠ 后端实际读配置文件 (config/drogon_config.json + config/rabbitmq.json),
       # 以下 env 仅作部署元信息声明, 真实连接串在挂载的配置里 (见 docs/DEPLOY_LINUX.md)
       MES_PG_DSN: "host=pgbouncer port=6432 dbname=mes user=mes password=${MES_PG_PASSWORD}"
-      # 读写分离: 默认无副本, 只读 DSN 指向主库 (开启 HA 副本后改指 postgres-replica)
+      # 声明性只读 DSN: 默认指向主库。注意: 后端当前仅一个 default db_client (指向 pgbouncer),
+      # 未实现读写分离, 不读取此 env; 叠加 ha-pg 后副本也不会被自动查询 (仅作热备)。
+      # 真实连接串在挂载的 config/drogon_config.json 中 (见 docs/DEPLOY_LINUX.md §5)。
       MES_PG_RO_DSN: "host=postgres-primary port=5432 dbname=mes user=mes password=${MES_PG_PASSWORD}"
       MES_REDIS: "redis-1:6379"
       MES_MQ_URL: "amqp://mes:${MES_MQ_PASSWORD}@rabbitmq-1:5672/"
