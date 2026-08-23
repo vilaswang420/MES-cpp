@@ -23,8 +23,8 @@
       "port": 6432,
       "dbname": "mes",
       "user": "mes",
-      "passwd": "LFVSx+4JxD24MLIkuJiHiw==",
-      "connection_number": 64,
+      "passwd": "LFVSx4JxD24MLIkuJiHiw00",
+      "connection_number": 10,
       "is_fast": false,
       "character_set": "UTF8"
     }
@@ -36,7 +36,7 @@
       "port": 6379,
       "passwd": "",
       "db": 0,
-      "connection_number": 32
+      "connection_number": 5
     }
   ],
   "log": {
@@ -54,6 +54,8 @@
   "custom_config": {
     "jwt_secret": "sUZgW9EUHHeghCBPiYbJuuCLGgCUCBWUW9BQv7204B4=",
     "jwt_access_ttl_sec": 7200,
-    "jwt_refresh_ttl_sec": 604800
+    "jwt_refresh_ttl_sec": 604800,
+    "redis_host": "redis-1",
+    "redis_port": 6379
   }
 }

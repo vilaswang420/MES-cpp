@@ -1,5 +1,5 @@
 # 生产环境编排 (M3 任务 24 定稿)
-# 与 dev 的差异: backend 双副本 / Redis Cluster 3主3从 / RMQ 3节点 quorum / Nginx TLS+WSS / PgBouncer transaction
+# 与 dev 的差异: backend 双副本 / Redis 单机 (Drogon hiredis 不支持 Cluster) / RMQ 3节点 quorum / Nginx TLS+WSS / PgBouncer transaction
 # 启动顺序: 证书先执行 scripts/gen_selfsigned_cert.ps1 (或 openssl 等价命令);
 #          首次起 replica 前需先执行 deploy/postgres/init_replica.sh 初始化数据目录。
 #
@@ -77,63 +77,12 @@ services:
       postgres-primary:
         condition: service_healthy
 
-  # ---- Redis Cluster 3主3从 (任务 24; 显式节点 + 独立卷, 避免 replicas 共享卷冲突) ----
-  redis-1: &redis-node
+  # ---- Redis 单机模式 (Drogon hiredis 不支持 Cluster MOVED 重定向) ----
+  redis-1:
     image: redis:7-alpine
-    command: ["redis-server", "--cluster-enabled", "yes", "--cluster-config-file", "nodes.conf",
-              "--appendonly", "yes", "--cluster-announce-hostname", "redis-1"]
+    command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - mes_redis_1:/data
-  redis-2:
-    <<: *redis-node
-    command: ["redis-server", "--cluster-enabled", "yes", "--cluster-config-file", "nodes.conf",
-              "--appendonly", "yes", "--cluster-announce-hostname", "redis-2"]
-    volumes:
-      - mes_redis_2:/data
-  redis-3:
-    <<: *redis-node
-    command: ["redis-server", "--cluster-enabled", "yes", "--cluster-config-file", "nodes.conf",
-              "--appendonly", "yes", "--cluster-announce-hostname", "redis-3"]
-    volumes:
-      - mes_redis_3:/data
-  redis-4:
-    <<: *redis-node
-    command: ["redis-server", "--cluster-enabled", "yes", "--cluster-config-file", "nodes.conf",
-              "--appendonly", "yes", "--cluster-announce-hostname", "redis-4"]
-    volumes:
-      - mes_redis_4:/data
-  redis-5:
-    <<: *redis-node
-    command: ["redis-server", "--cluster-enabled", "yes", "--cluster-config-file", "nodes.conf",
-              "--appendonly", "yes", "--cluster-announce-hostname", "redis-5"]
-    volumes:
-      - mes_redis_5:/data
-  redis-6:
-    <<: *redis-node
-    command: ["redis-server", "--cluster-enabled", "yes", "--cluster-config-file", "nodes.conf",
-              "--appendonly", "yes", "--cluster-announce-hostname", "redis-6"]
-    volumes:
-      - mes_redis_6:/data
-
-  # 一次性集群初始化: 3主3从 (幂等: 已初始化则跳过)
-  redis-cluster-init:
-    image: redis:7-alpine
-    entrypoint: ["sh", "-c"]
-    command:
-      - |
-        if redis-cli -h redis-1 cluster info | grep -q cluster_state:ok; then
-          echo "cluster already formed"; exit 0;
-        fi;
-        redis-cli --cluster create redis-1:6379 redis-2:6379 redis-3:6379 \
-          redis-4:6379 redis-5:6379 redis-6:6379 \
-          --cluster-replicas 1 --cluster-yes
-    depends_on:
-      - redis-1
-      - redis-2
-      - redis-3
-      - redis-4
-      - redis-5
-      - redis-6
 
   # ---- RabbitMQ 3 节点集群 (任务 24; quorum 队列见 topology.prod.json) ----
   rabbitmq-1: &rmq-node
@@ -208,6 +157,11 @@ services:
         condition: service_started
       rabbitmq-1:
         condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/8088'"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
 
   # ---- IoT 采集服务 (P4-5.1) ----
   iot:
@@ -226,7 +180,7 @@ services:
       backend:
         condition: service_started
     healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8091 && printf 'GET /healthz HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q ok <&3"]
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/8091'"]
       interval: 10s
       timeout: 3s
       retries: 6
@@ -265,11 +219,6 @@ volumes:
   mes_pg_primary:
   mes_pg_replica:
   mes_redis_1:
-  mes_redis_2:
-  mes_redis_3:
-  mes_redis_4:
-  mes_redis_5:
-  mes_redis_6:
   mes_rmq_1:
   mes_rmq_2:
   mes_rmq_3:

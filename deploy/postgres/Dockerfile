@@ -26,6 +26,8 @@ RUN set -eux; \
     apt-get autoremove -y; rm -rf /var/lib/apt/lists/* /tmp/partman* /tmp/pg_cron
 
 COPY initdb/ /docker-entrypoint-initdb.d/
+COPY init_replica.sh /init_replica.sh
+RUN chmod +x /init_replica.sh
 
 # pg_cron 必须注册到 shared_preload_libraries; cron 库内跑在 mes 库
 ENV POSTGRES_DB=mes \
